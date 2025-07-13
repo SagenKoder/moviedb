@@ -13,15 +13,24 @@ import (
 )
 
 type User struct {
-	Auth0ID string `json:"auth0_id"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
+	Auth0ID   string `json:"auth0_id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 // CustomClaims contains custom data we want to extract from the token.
 type CustomClaims struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	GivenName string `json:"given_name"`
+	FamilyName string `json:"family_name"`
+	Nickname  string `json:"nickname"`
+	// Custom claims from Auth0 action
+	CustomName     string `json:"custom_name"`
+	CustomEmail    string `json:"custom_email"`
+	CustomNickname string `json:"custom_nickname"`
+	CustomPicture  string `json:"custom_picture"`
 }
 
 // Validate does nothing for this example, but we need
@@ -68,10 +77,43 @@ func GetUserFromContext(ctx context.Context) (*User, error) {
 		return nil, fmt.Errorf("invalid custom claims format")
 	}
 
+	// Try to get the best available name - prioritize custom claims first
+	name := customClaims.CustomName
+	if name == "" {
+		name = customClaims.Name
+	}
+	if name == "" && customClaims.GivenName != "" {
+		name = customClaims.GivenName
+		if customClaims.FamilyName != "" {
+			name += " " + customClaims.FamilyName
+		}
+	}
+	if name == "" {
+		name = customClaims.CustomNickname
+	}
+	if name == "" {
+		name = customClaims.Nickname
+	}
+	
+	// Try to get email - prioritize custom claims first
+	email := customClaims.CustomEmail
+	if email == "" {
+		email = customClaims.Email
+	}
+	
+	// Final fallback to email if no name available
+	if name == "" {
+		name = email
+	}
+	
+	// Get avatar URL from custom claims
+	avatarURL := customClaims.CustomPicture
+
 	return &User{
-		Auth0ID: claims.RegisteredClaims.Subject,
-		Email:   customClaims.Email,
-		Name:    customClaims.Name,
+		Auth0ID:   claims.RegisteredClaims.Subject,
+		Email:     email,
+		Name:      name,
+		AvatarURL: avatarURL,
 	}, nil
 }
 

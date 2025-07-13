@@ -9,17 +9,41 @@ import (
 )
 
 // GetOrCreateUser finds a user by Auth0 ID or creates a new one
-func GetOrCreateUser(db *sql.DB, auth0ID, email, name string) (*types.User, error) {
+// Auth0 is treated as the source of truth - existing users are updated with latest info
+func GetOrCreateUser(db *sql.DB, auth0ID, email, name, avatarURL string) (*types.User, error) {
 	// First try to find existing user
 	var user types.User
 	err := db.QueryRow(`
-		SELECT id, auth0_id, email, name, username, created_at 
+		SELECT id, auth0_id, email, name, username, avatar_url, created_at 
 		FROM users 
 		WHERE auth0_id = ?
-	`, auth0ID).Scan(&user.ID, &user.Auth0ID, &user.Email, &user.Name, &user.Username, &user.Created)
+	`, auth0ID).Scan(&user.ID, &user.Auth0ID, &user.Email, &user.Name, &user.Username, &user.AvatarURL, &user.Created)
 
 	if err == nil {
-		// User exists, return it
+		// User exists, check if Auth0 data has changed
+		avatarChanged := (user.AvatarURL == nil && avatarURL != "") || (user.AvatarURL != nil && *user.AvatarURL != avatarURL)
+		if user.Email != email || user.Name != name || avatarChanged {
+			// Only update if data has actually changed
+			_, err = db.Exec(`
+				UPDATE users 
+				SET email = ?, name = ?, avatar_url = ?
+				WHERE auth0_id = ?
+			`, email, name, avatarURL, auth0ID)
+			
+			if err != nil {
+				return nil, fmt.Errorf("failed to update user: %w", err)
+			}
+			
+			// Update the user struct with new data
+			user.Email = email
+			user.Name = name
+			if avatarURL != "" {
+				user.AvatarURL = &avatarURL
+			} else {
+				user.AvatarURL = nil
+			}
+		}
+		
 		return &user, nil
 	}
 
@@ -30,9 +54,9 @@ func GetOrCreateUser(db *sql.DB, auth0ID, email, name string) (*types.User, erro
 
 	// User doesn't exist, create new one
 	result, err := db.Exec(`
-		INSERT INTO users (auth0_id, email, name, created_at) 
-		VALUES (?, ?, ?, ?)
-	`, auth0ID, email, name, time.Now())
+		INSERT INTO users (auth0_id, email, name, avatar_url, created_at) 
+		VALUES (?, ?, ?, ?, ?)
+	`, auth0ID, email, name, avatarURL, time.Now())
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
@@ -50,6 +74,9 @@ func GetOrCreateUser(db *sql.DB, auth0ID, email, name string) (*types.User, erro
 		Email:   email,
 		Name:    name,
 		Created: time.Now(),
+	}
+	if avatarURL != "" {
+		user.AvatarURL = &avatarURL
 	}
 
 	return &user, nil

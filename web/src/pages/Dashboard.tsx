@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
-import { useLists } from '../hooks/useLists'
+import { useLists, List } from '../hooks/useLists'
 import { CreateListModal } from '../components/lists/CreateListModal'
-import { Loader2, Plus } from 'lucide-react'
+import { EditListModal } from '../components/lists/EditListModal'
+import { Loader2, Plus, Edit3 } from 'lucide-react'
 
 export function Dashboard() {
   const { user } = useAuth0()
   const { lists, loading, error, fetchLists } = useLists()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [editingList, setEditingList] = useState<List | null>(null)
 
   const totalMovies = lists.reduce((sum, list) => sum + list.movie_count, 0)
 
@@ -60,19 +62,36 @@ export function Dashboard() {
 
             {/* Individual Lists */}
             {lists.slice(0, 3).map((list) => (
-              <div key={list.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors duration-200">
+              <div key={list.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors duration-200 relative group">
                 <Link 
                   to={`/profile/${user?.sub}?list=${list.id}`}
                   className="block hover:bg-gray-50 dark:hover:bg-gray-700/50 -m-6 p-6 rounded-lg transition-colors"
                 >
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 truncate hover:text-blue-600 dark:hover:text-blue-400 transition-colors" title={list.name}>
-                    {list.name}
-                  </h3>
+                  <div className="flex items-start justify-between mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate hover:text-blue-600 dark:hover:text-blue-400 transition-colors pr-2" title={list.name}>
+                      {list.name}
+                    </h3>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                      {list.is_public ? 'Public' : 'Private'}
+                    </span>
+                  </div>
                   <p className="text-3xl font-bold text-green-600">{list.movie_count}</p>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm">
-                    {list.movie_count === 1 ? 'movie' : 'movies'}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500 dark:text-gray-400 text-sm">
+                      {list.movie_count === 1 ? 'movie' : 'movies'}
+                    </span>
+                  </div>
                 </Link>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setEditingList(list)
+                  }}
+                  className="absolute bottom-4 right-4 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                  title="Edit list"
+                >
+                  <Edit3 size={16} />
+                </button>
               </div>
             ))}
 
@@ -129,6 +148,14 @@ export function Dashboard() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => fetchLists()}
+      />
+
+      {/* Edit List Modal */}
+      <EditListModal
+        list={editingList}
+        isOpen={!!editingList}
+        onClose={() => setEditingList(null)}
+        onUpdate={() => fetchLists()}
       />
     </div>
   )

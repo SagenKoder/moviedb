@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
-import { Home, Film, User, Menu, X } from 'lucide-react'
+import { Home, Film, User, Users, Menu, X } from 'lucide-react'
 import { useDarkMode } from '../../contexts/DarkModeContext'
 import { UserMenu } from './UserMenu'
 
@@ -14,6 +14,7 @@ export function Header() {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: Home },
     { path: '/movies', label: 'Movies', icon: Film },
+    { path: '/community', label: 'Community', icon: Users },
     { path: `/profile/${user?.sub}`, label: 'Profile', icon: User },
   ]
 

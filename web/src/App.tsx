@@ -5,6 +5,7 @@ import { Header } from './components/layout/Header'
 import { Footer } from './components/layout/Footer'
 import { Dashboard } from './pages/Dashboard'
 import { Movies } from './pages/Movies'
+import { Community } from './pages/Community'
 import { Profile } from './pages/Profile'
 import { DarkModeProvider } from './contexts/DarkModeContext'
 
@@ -28,9 +29,9 @@ function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/movies" element={<Movies />} />
+                  <Route path="/community" element={<Community />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/profile/:userId" element={<Profile />} />
-                  {/* Future routes will go here */}
                 </Routes>
               </main>
               <Footer />

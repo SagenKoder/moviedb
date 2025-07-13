@@ -3,12 +3,13 @@ package types
 import "time"
 
 type User struct {
-	ID       int       `json:"id"`
-	Auth0ID  string    `json:"auth0_id"`
-	Email    string    `json:"email"`
-	Name     string    `json:"name"`
-	Username *string   `json:"username"`
-	Created  time.Time `json:"created_at"`
+	ID        int       `json:"id"`
+	Auth0ID   string    `json:"auth0_id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Username  *string   `json:"username"`
+	AvatarURL *string   `json:"avatar_url"`
+	Created   time.Time `json:"created_at"`
 }
 
 type Movie struct {

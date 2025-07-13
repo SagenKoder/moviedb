@@ -29,7 +29,7 @@ func (h *ListHandler) GetLists(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -103,7 +103,7 @@ func (h *ListHandler) CreateList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -156,7 +156,7 @@ func (h *ListHandler) GetList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -276,7 +276,7 @@ func (h *ListHandler) UpdateList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -357,7 +357,7 @@ func (h *ListHandler) DeleteList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -426,7 +426,7 @@ func (h *ListHandler) AddMovieToList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -517,7 +517,7 @@ func (h *ListHandler) RemoveMovieFromList(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -586,7 +586,7 @@ func (h *ListHandler) GetMovieInLists(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
@@ -644,7 +644,7 @@ func (h *ListHandler) GetAllUserMovies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create user in database
-	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name)
+	user, err := database.GetOrCreateUser(h.db, authUser.Auth0ID, authUser.Email, authUser.Name, authUser.AvatarURL)
 	if err != nil {
 		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return

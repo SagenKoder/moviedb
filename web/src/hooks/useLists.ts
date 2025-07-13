@@ -186,10 +186,15 @@ export function useLists() {
     }
   }
 
-  const getAllUserMovies = async () => {
+  const getAllUserMovies = async (userId?: string, page: number = 1, limit: number = 20) => {
     try {
-      const data = await apiCall('/api/me/movies')
-      return data.movies || []
+      const endpoint = userId ? `/api/users/${userId}/movies` : '/api/me/movies'
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString()
+      })
+      const data = await apiCall(`${endpoint}?${params.toString()}`)
+      return data
     } catch (err) {
       console.error('Failed to get all user movies:', err)
       throw err

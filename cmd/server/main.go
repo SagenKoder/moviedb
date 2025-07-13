@@ -82,6 +82,7 @@ func main() {
 	mux.HandleFunc("GET /api/users", requireAuth(http.HandlerFunc(userHandler.GetUsers)).ServeHTTP)
 	mux.HandleFunc("GET /api/users/{id}", requireAuth(http.HandlerFunc(userHandler.GetUser)).ServeHTTP)
 	mux.HandleFunc("GET /api/users/{id}/lists", requireAuth(http.HandlerFunc(userHandler.GetUserLists)).ServeHTTP)
+	mux.HandleFunc("GET /api/users/{id}/movies", requireAuth(http.HandlerFunc(userHandler.GetUserMovies)).ServeHTTP)
 	mux.HandleFunc("POST /api/users/{id}/friend", requireAuth(http.HandlerFunc(userHandler.AddFriend)).ServeHTTP)
 	mux.HandleFunc("DELETE /api/users/{id}/friend", requireAuth(http.HandlerFunc(userHandler.RemoveFriend)).ServeHTTP)
 
@@ -121,7 +122,7 @@ func main() {
 		// Development mode - serve from disk
 		log.Println("Serving static files from disk:", staticDir)
 		fs := http.FileServer(http.Dir(staticDir))
-		mux.Handle("/", fs)
+		mux.Handle("/", addCacheHeaders(fs))
 	} else {
 		// Production mode - serve embedded files
 		log.Println("Serving embedded static files")
@@ -129,7 +130,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to create sub filesystem:", err)
 		}
-		mux.Handle("/", http.FileServer(http.FS(distFS)))
+		mux.Handle("/", addCacheHeaders(http.FileServer(http.FS(distFS))))
 	}
 
 	log.Printf("Server starting on port %s", port)
@@ -141,4 +142,21 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// addCacheHeaders adds appropriate cache headers to prevent browser caching issues
+func addCacheHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For HTML files (like index.html), prevent caching to ensure latest version is loaded
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		} else {
+			// For assets (JS, CSS), allow caching but add ETag for validation
+			w.Header().Set("Cache-Control", "public, max-age=31536000") // 1 year for assets
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }
