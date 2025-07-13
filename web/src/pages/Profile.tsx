@@ -105,6 +105,7 @@ export function Profile() {
     
     setMoviesLoading(true)
     setMoviesError(null)
+    setMovies([]) // Clear existing movies first to prevent duplicates
     
     try {
       let formattedMovies: Movie[] = []

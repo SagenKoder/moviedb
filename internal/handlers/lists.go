@@ -191,7 +191,7 @@ func (h *ListHandler) GetList(w http.ResponseWriter, r *http.Request) {
 
 	// Get movies in this list
 	rows, err := h.db.Query(`
-		SELECT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, lm.added_at
+		SELECT DISTINCT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, lm.added_at
 		FROM list_movies lm
 		JOIN movies m ON lm.movie_id = m.id
 		WHERE lm.list_id = ?

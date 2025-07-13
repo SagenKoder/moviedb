@@ -515,27 +515,29 @@ func (h *UserHandler) GetUserMovies(w http.ResponseWriter, r *http.Request) {
 	// Get movies from user's lists (with privacy filtering and pagination)
 	var query string
 	if isOwnProfile {
-		// Own profile: show movies from all lists
+		// Own profile: show movies from all lists (distinct movies only)
 		query = `
-			SELECT DISTINCT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, lm.added_at,
-			       l.id as list_id, l.name as list_name
+			SELECT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, 
+			       MAX(lm.added_at) as added_at
 			FROM list_movies lm
 			JOIN movies m ON lm.movie_id = m.id
 			JOIN lists l ON lm.list_id = l.id
 			WHERE l.user_id = ?
-			ORDER BY lm.added_at DESC
+			GROUP BY m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis
+			ORDER BY MAX(lm.added_at) DESC
 			LIMIT ? OFFSET ?
 		`
 	} else {
-		// Other's profile: only show movies from public lists
+		// Other's profile: only show movies from public lists (distinct movies only)
 		query = `
-			SELECT DISTINCT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, lm.added_at,
-			       l.id as list_id, l.name as list_name
+			SELECT m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis, 
+			       MAX(lm.added_at) as added_at
 			FROM list_movies lm
 			JOIN movies m ON lm.movie_id = m.id
 			JOIN lists l ON lm.list_id = l.id
 			WHERE l.user_id = ? AND l.is_public = 1
-			ORDER BY lm.added_at DESC
+			GROUP BY m.id, m.tmdb_id, m.title, m.year, m.poster_url, m.synopsis
+			ORDER BY MAX(lm.added_at) DESC
 			LIMIT ? OFFSET ?
 		`
 	}
@@ -549,26 +551,24 @@ func (h *UserHandler) GetUserMovies(w http.ResponseWriter, r *http.Request) {
 
 	var movies []map[string]interface{}
 	for rows.Next() {
-		var movieID, tmdbID, listID int
-		var title, synopsis, listName string
+		var movieID, tmdbID int
+		var title, synopsis string
 		var year *int
 		var posterURL *string
 		var addedAt string
 
-		err := rows.Scan(&movieID, &tmdbID, &title, &year, &posterURL, &synopsis, &addedAt, &listID, &listName)
+		err := rows.Scan(&movieID, &tmdbID, &title, &year, &posterURL, &synopsis, &addedAt)
 		if err != nil {
 			continue
 		}
 
 		movie := map[string]interface{}{
-			"id":        movieID,
-			"tmdb_id":   tmdbID,
-			"title":     title,
-			"year":      year,
-			"synopsis":  synopsis,
-			"added_at":  addedAt,
-			"list_id":   listID,
-			"list_name": listName,
+			"id":       movieID,
+			"tmdb_id":  tmdbID,
+			"title":    title,
+			"year":     year,
+			"synopsis": synopsis,
+			"added_at": addedAt,
 		}
 
 		if posterURL != nil {
