@@ -257,7 +257,7 @@ export function MovieDetailModal({ movie, isOpen, onClose }: MovieDetailModalPro
                       {feedback.message}
                     </div>
                   )}
-                  <div className="grid grid-cols-1 gap-2 max-h-32 overflow-y-auto">
+                  <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
                     {lists.map((list) => {
                       const isInList = movieInLists.has(list.id)
                       
