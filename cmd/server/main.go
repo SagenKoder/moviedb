@@ -116,6 +116,29 @@ func main() {
 	mux.HandleFunc("POST /api/sync/movies", requireAuth(http.HandlerFunc(syncHandler.TriggerMovieSync)).ServeHTTP)
 	mux.HandleFunc("GET /api/sync/status", requireAuth(http.HandlerFunc(syncHandler.GetSyncStatus)).ServeHTTP)
 
+	// SPA routes - serve index.html for client-side routing
+	spaRoutes := []string{"/movies", "/community", "/lists", "/profile", "/search", "/settings"}
+	for _, route := range spaRoutes {
+		route := route // capture loop variable
+		mux.HandleFunc("GET "+route, func(w http.ResponseWriter, r *http.Request) {
+			r.URL.Path = "/"
+			staticDir := getEnv("STATIC_DIR", "./web/dist")
+			if _, err := os.Stat(staticDir); err == nil {
+				// Development mode
+				fs := http.FileServer(http.Dir(staticDir))
+				addCacheHeaders(fs).ServeHTTP(w, r)
+			} else {
+				// Production mode
+				distFS, err := moviedb.GetDistFS()
+				if err != nil {
+					http.Error(w, "Failed to load app", http.StatusInternalServerError)
+					return
+				}
+				addCacheHeaders(http.FileServer(http.FS(distFS))).ServeHTTP(w, r)
+			}
+		})
+	}
+
 	// Static files (React app) - serve embedded files in production or from disk in development
 	staticDir := getEnv("STATIC_DIR", "./web/dist")
 	if _, err := os.Stat(staticDir); err == nil {
@@ -143,6 +166,7 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
+
 
 // addCacheHeaders adds appropriate cache headers to prevent browser caching issues
 func addCacheHeaders(next http.Handler) http.Handler {
