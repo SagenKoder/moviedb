@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -17,11 +18,11 @@ type PlexSyncHandler struct {
 	mapper     *services.PlexTMDBMapper
 }
 
-func NewPlexSyncHandler(db *sql.DB) *PlexSyncHandler {
+func NewPlexSyncHandler(db *sql.DB, tmdbClient *services.TMDBClient) *PlexSyncHandler {
 	return &PlexSyncHandler{
 		db:         db,
 		plexClient: services.NewPlexClient(),
-		mapper:     services.NewPlexTMDBMapper(db),
+		mapper:     services.NewPlexTMDBMapper(db, tmdbClient),
 	}
 }
 
@@ -64,22 +65,95 @@ func (h *PlexSyncHandler) SyncPlexLibrary(w http.ResponseWriter, r *http.Request
 	var syncResults []map[string]interface{}
 	totalSynced := 0
 	totalErrors := 0
+	var debugInfo []string
 
 	// For each server, get libraries and sync movies
 	for _, server := range servers {
 		serverName, _ := server["name"].(string)
-		serverURL, _ := server["uri"].(string)
+		
+		// Extract server URL from connections array - only use external connections
+		var serverURL string
+		if connections, ok := server["connections"].([]interface{}); ok {
+			// Only use external (non-local) connections
+			for _, conn := range connections {
+				if connMap, ok := conn.(map[string]interface{}); ok {
+					if uri, ok := connMap["uri"].(string); ok {
+						if local, ok := connMap["local"].(bool); ok && !local {
+							// External connection - use this
+							serverURL = uri
+							break
+						}
+					}
+				}
+			}
+		}
+		
+		fmt.Printf("DEBUG: Processing Plex server: %s\n", serverName)
+		fmt.Printf("DEBUG: Selected server URL: '%s'\n", serverURL)
+		
+		debugInfo = append(debugInfo, fmt.Sprintf("Processing server: %s", serverName))
+		debugInfo = append(debugInfo, fmt.Sprintf("  Selected URL: '%s'", serverURL))
 		
 		if serverURL == "" {
+			debugInfo = append(debugInfo, "Skipping server with no accessible URL")
 			continue
 		}
 
+		// Check if user owns this server
+		owned, _ := server["owned"].(bool)
+		
 		// Get libraries for this server
 		libraries, err := h.plexClient.GetLibraries(plexToken, serverURL)
 		if err != nil {
+			if !owned {
+				debugInfo = append(debugInfo, fmt.Sprintf("Cannot access libraries on shared server %s (not owner): %v", serverName, err))
+				debugInfo = append(debugInfo, "Trying alternative endpoints for shared users...")
+				
+				// Try alternative approach for shared users
+				movies, err := h.trySharedUserSync(plexToken, serverURL, serverName)
+				if err != nil {
+					debugInfo = append(debugInfo, fmt.Sprintf("Alternative sync failed: %v", err))
+					totalErrors++
+					continue
+				} else if len(movies) > 0 {
+					debugInfo = append(debugInfo, fmt.Sprintf("Found %d movies via alternative method", len(movies)))
+					
+					// Process movies directly without library structure
+					libraryResults := map[string]interface{}{
+						"server":   serverName,
+						"library":  "Shared Content",
+						"movies":   len(movies),
+						"synced":   0,
+						"errors":   0,
+					}
+					
+					for _, movie := range movies {
+						year := &movie.Year
+						if movie.Year == 0 {
+							year = nil
+						}
+						
+						_, err := h.mapper.GetOrCreateMapping(movie.GUID, movie.Title, year, movie.RatingKey)
+						if err != nil {
+							libraryResults["errors"] = libraryResults["errors"].(int) + 1
+							totalErrors++
+						} else {
+							libraryResults["synced"] = libraryResults["synced"].(int) + 1
+							totalSynced++
+						}
+					}
+					
+					syncResults = append(syncResults, libraryResults)
+					continue
+				}
+			} else {
+				debugInfo = append(debugInfo, fmt.Sprintf("Error getting libraries from %s: %v", serverName, err))
+			}
 			totalErrors++
 			continue
 		}
+
+		debugInfo = append(debugInfo, fmt.Sprintf("Found %d libraries on server %s", len(libraries), serverName))
 
 		// Process movie libraries only
 		for _, library := range libraries {
@@ -133,6 +207,7 @@ func (h *PlexSyncHandler) SyncPlexLibrary(w http.ResponseWriter, r *http.Request
 		"totalSynced":  totalSynced,
 		"totalErrors":  totalErrors,
 		"libraries":    syncResults,
+		"debugInfo":    debugInfo,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -214,4 +289,11 @@ func (h *PlexSyncHandler) SearchPlexMappings(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// trySharedUserSync attempts to sync movies for shared users using alternative endpoints
+func (h *PlexSyncHandler) trySharedUserSync(token, serverURL, serverName string) ([]services.PlexLibraryItem, error) {
+	// For shared users, we can't access the full library endpoints
+	// This is a placeholder that returns empty results since we've moved to on-demand search
+	return []services.PlexLibraryItem{}, fmt.Errorf("shared user sync not supported - use on-demand search instead")
 }

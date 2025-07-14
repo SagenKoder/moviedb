@@ -216,6 +216,91 @@ func (c *TMDBClient) GetMovieExternalIDs(tmdbID int) (*TMDBExternalIDs, error) {
 	return &externalIDs, nil
 }
 
+// TMDBFindResponse represents the response from TMDB find API
+type TMDBFindResponse struct {
+	MovieResults []TMDBMovie `json:"movie_results"`
+	PersonResults []interface{} `json:"person_results"`
+	TVResults []interface{} `json:"tv_results"`
+}
+
+// FindByExternalID finds TMDB movie by external ID (IMDb, TVDB, etc.)
+func (c *TMDBClient) FindByExternalID(externalID string, source string) (*TMDBFindResponse, error) {
+	// Validate source parameter
+	validSources := map[string]bool{
+		"imdb_id": true,
+		"freebase_mid": true,
+		"freebase_id": true,
+		"tvdb_id": true,
+		"tvrage_id": true,
+		"facebook_id": true,
+		"twitter_id": true,
+		"instagram_id": true,
+	}
+	
+	if !validSources[source] {
+		return nil, fmt.Errorf("invalid external source: %s", source)
+	}
+	
+	endpoint := fmt.Sprintf("/find/%s", externalID)
+	params := map[string]string{
+		"external_source": source,
+	}
+	
+	resp, err := c.makeRequest(endpoint, params)
+	if err != nil {
+		return nil, fmt.Errorf("find request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var findResp TMDBFindResponse
+	if err := json.NewDecoder(resp.Body).Decode(&findResp); err != nil {
+		return nil, fmt.Errorf("failed to decode find response: %w", err)
+	}
+
+	return &findResp, nil
+}
+
+// TMDBWatchProvider represents a streaming/rental provider
+type TMDBWatchProvider struct {
+	DisplayPriority int     `json:"display_priority"`
+	LogoPath        string  `json:"logo_path"`
+	ProviderID      int     `json:"provider_id"`
+	ProviderName    string  `json:"provider_name"`
+}
+
+// TMDBWatchProvidersRegion represents watch providers for a specific region
+type TMDBWatchProvidersRegion struct {
+	Link      string              `json:"link,omitempty"`
+	Flatrate  []TMDBWatchProvider `json:"flatrate,omitempty"`  // Subscription services like Netflix
+	Rent      []TMDBWatchProvider `json:"rent,omitempty"`      // Rental services like Amazon Video
+	Buy       []TMDBWatchProvider `json:"buy,omitempty"`       // Purchase services like iTunes
+	Free      []TMDBWatchProvider `json:"free,omitempty"`      // Free services like YouTube
+}
+
+// TMDBWatchProvidersResponse represents the response from TMDB watch providers API
+type TMDBWatchProvidersResponse struct {
+	ID      int                                     `json:"id"`
+	Results map[string]TMDBWatchProvidersRegion    `json:"results"` // Region code -> providers
+}
+
+// GetMovieWatchProviders gets watch provider information for a movie
+func (c *TMDBClient) GetMovieWatchProviders(tmdbID int) (*TMDBWatchProvidersResponse, error) {
+	endpoint := fmt.Sprintf("/movie/%d/watch/providers", tmdbID)
+	
+	resp, err := c.makeRequest(endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("watch providers request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var watchProviders TMDBWatchProvidersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&watchProviders); err != nil {
+		return nil, fmt.Errorf("failed to decode watch providers: %w", err)
+	}
+
+	return &watchProviders, nil
+}
+
 // GetPosterURL generates the full URL for a movie poster
 func (c *TMDBClient) GetPosterURL(posterPath *string, size string) string {
 	if posterPath == nil || *posterPath == "" {

@@ -4,7 +4,6 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { Home, Film, User, Users, Menu, X } from 'lucide-react'
 import { useDarkMode } from '../../contexts/DarkModeContext'
 import { UserMenu } from './UserMenu'
-import { NowPlaying } from '../plex/NowPlaying'
 
 export function Header() {
   const { isDarkMode, toggleDarkMode } = useDarkMode()
@@ -53,11 +52,6 @@ export function Header() {
           </div>
           
           <div className="flex items-center space-x-4">
-            {/* Now Playing - Visible on medium screens and up */}
-            <div className="hidden md:block">
-              <NowPlaying />
-            </div>
-            
             {/* Mobile menu button */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}

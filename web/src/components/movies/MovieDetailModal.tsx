@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Star, Calendar, Clock, Users, ExternalLink, Plus, Minus } from 'lucide-react'
 import { Movie } from '../../hooks/useMovies'
 import { useLists } from '../../hooks/useLists'
+import { WatchProviders } from './WatchProviders'
 
 interface MovieDetailModalProps {
   movie: Movie | null
@@ -238,6 +239,11 @@ export function MovieDetailModal({ movie, isOpen, onClose }: MovieDetailModalPro
                     Letterboxd
                   </a>
                 </div>
+              </div>
+
+              {/* Watch Providers */}
+              <div className="mb-6">
+                <WatchProviders tmdbId={movie.tmdb_id} region="NO" />
               </div>
 
               {/* Add to Lists */}

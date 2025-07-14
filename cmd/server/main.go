@@ -61,6 +61,8 @@ func main() {
 	listHandler := handlers.NewListHandler(db)
 	syncHandler := handlers.NewSyncHandler(movieSyncService)
 	plexHandler := handlers.NewPlexHandler(db)
+	plexSyncHandler := handlers.NewPlexSyncHandler(db, tmdbClient)
+	watchProvidersHandler := handlers.NewWatchProvidersHandler(db, tmdbClient, services.NewPlexClient())
 
 	// Setup router using standard library ServeMux
 	mux := http.NewServeMux()
@@ -122,7 +124,15 @@ func main() {
 	mux.HandleFunc("GET /api/plex/auth/check", requireAuth(http.HandlerFunc(plexHandler.CheckPlexAuth)).ServeHTTP)
 	mux.HandleFunc("GET /api/plex/status", requireAuth(http.HandlerFunc(plexHandler.GetPlexStatus)).ServeHTTP)
 	mux.HandleFunc("DELETE /api/plex/disconnect", requireAuth(http.HandlerFunc(plexHandler.DisconnectPlex)).ServeHTTP)
-	mux.HandleFunc("GET /api/plex/now-playing", requireAuth(http.HandlerFunc(plexHandler.GetNowPlaying)).ServeHTTP)
+
+	// Plex sync routes
+	mux.HandleFunc("POST /api/plex/sync", requireAuth(http.HandlerFunc(plexSyncHandler.SyncPlexLibrary)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/mappings", requireAuth(http.HandlerFunc(plexSyncHandler.GetPlexMappings)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/mappings/search", requireAuth(http.HandlerFunc(plexSyncHandler.SearchPlexMappings)).ServeHTTP)
+
+	// Watch providers routes
+	mux.HandleFunc("GET /api/movies/{id}/watch-providers", requireAuth(http.HandlerFunc(watchProvidersHandler.GetMovieWatchProviders)).ServeHTTP)
+	mux.HandleFunc("POST /api/watch-providers/clear-cache", requireAuth(http.HandlerFunc(watchProvidersHandler.ClearExpiredCache)).ServeHTTP)
 
 	// SPA routes - serve index.html for client-side routing
 	spaRoutes := []string{"/movies", "/community", "/lists", "/profile", "/search", "/settings"}
