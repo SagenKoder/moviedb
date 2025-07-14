@@ -24,7 +24,7 @@ export function MovieDetailModal({ movie, isOpen, onClose }: MovieDetailModalPro
         setMovieInLists(new Set(listIds))
       })
     }
-  }, [isOpen, movie, getMovieInLists])
+  }, [isOpen, movie])
 
   // Close modal on Escape key
   useEffect(() => {
