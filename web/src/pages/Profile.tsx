@@ -5,14 +5,14 @@ import { useLists } from '../hooks/useLists'
 import { useMovies, Movie } from '../hooks/useMovies'
 import { MovieCard } from '../components/movies/MovieCard'
 import { MovieDetailModal } from '../components/movies/MovieDetailModal'
-import { Filter, User, Loader2, Film, Play, Edit3 } from 'lucide-react'
+import { User, Loader2, Film, Play, Edit3 } from 'lucide-react'
 import { EditListModal } from '../components/lists/EditListModal'
 
 export function Profile() {
   const { userId } = useParams<{ userId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth0()
-  const { loading: listsLoading, error: listsError, getAllUserMovies, getListDetails, getUserLists, getUserProfile } = useLists()
+  const { error: listsError, getAllUserMovies, getListDetails, getUserLists, getUserProfile } = useLists()
   const [lists, setLists] = useState<any[]>([])
   const [profileUser, setProfileUser] = useState<any>(null)
   const [userLoading, setUserLoading] = useState(false)

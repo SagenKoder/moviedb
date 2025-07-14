@@ -122,6 +122,7 @@ func main() {
 	mux.HandleFunc("GET /api/plex/auth/check", requireAuth(http.HandlerFunc(plexHandler.CheckPlexAuth)).ServeHTTP)
 	mux.HandleFunc("GET /api/plex/status", requireAuth(http.HandlerFunc(plexHandler.GetPlexStatus)).ServeHTTP)
 	mux.HandleFunc("DELETE /api/plex/disconnect", requireAuth(http.HandlerFunc(plexHandler.DisconnectPlex)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/now-playing", requireAuth(http.HandlerFunc(plexHandler.GetNowPlaying)).ServeHTTP)
 
 	// SPA routes - serve index.html for client-side routing
 	spaRoutes := []string{"/movies", "/community", "/lists", "/profile", "/search", "/settings"}

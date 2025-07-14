@@ -23,7 +23,6 @@ export function Community() {
   const [error, setError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [totalUsers, setTotalUsers] = useState(0)
 
   // Load initial users on mount and when page changes
   useEffect(() => {
@@ -59,13 +58,11 @@ export function Community() {
       const data = await response.json()
       setUsers(data.users || [])
       setTotalPages(data.total_pages || 1)
-      setTotalUsers(data.total || 0)
     } catch (err) {
       console.error('Failed to load users:', err)
       setError(err instanceof Error ? err.message : 'Failed to load users')
       setUsers([])
       setTotalPages(1)
-      setTotalUsers(0)
     } finally {
       setLoading(false)
     }
