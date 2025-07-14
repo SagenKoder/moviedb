@@ -51,20 +51,22 @@ func (s *WatchProvidersService) GetWatchProviders(tmdbID int, region string, use
 		region = "US" // Default to US
 	}
 
-	// Try to get from cache first
-	cached, err := s.getCachedWatchProviders(tmdbID, region)
-	if err == nil && cached.ExpiresAt.After(time.Now()) {
-		// Add Plex availability if user is provided
-		if userID != nil {
-			plexAvailable, plexProviders, err := s.getPlexAvailability(tmdbID, *userID)
-			if err == nil {
-				cached.PlexAvailable = plexAvailable
-				// Add Plex providers to the list
-				cached.Providers = append(cached.Providers, plexProviders...)
-			}
-		}
-		return cached, nil
-	}
+	// TEMPORARILY DISABLE CACHE - Try to get from cache first
+	// cached, err := s.getCachedWatchProviders(tmdbID, region)
+	// if err == nil && cached.ExpiresAt.After(time.Now()) {
+	// 	// Add Plex availability if user is provided
+	// 	if userID != nil {
+	// 		plexAvailable, plexProviders, err := s.getPlexAvailability(tmdbID, *userID)
+	// 		if err == nil {
+	// 			cached.PlexAvailable = plexAvailable
+	// 			// Add Plex providers to the list
+	// 			cached.Providers = append(cached.Providers, plexProviders...)
+	// 		}
+	// 	}
+	// 	return cached, nil
+	// }
+	
+	fmt.Printf("DEBUG: CACHE DISABLED - Forcing fresh lookup for TMDB ID %d\n", tmdbID)
 
 	// Fetch fresh data from TMDB
 	tmdbProviders, err := s.tmdbClient.GetMovieWatchProviders(tmdbID)
@@ -135,11 +137,12 @@ func (s *WatchProvidersService) GetWatchProviders(tmdbID int, region string, use
 		}
 	}
 
-	// Cache the TMDB data (not including Plex data which is user-specific)
-	err = s.cacheWatchProviders(response)
-	if err != nil {
-		fmt.Printf("Failed to cache watch providers: %v\n", err)
-	}
+	// SKIP CACHING WHILE TESTING - Cache the TMDB data (not including Plex data which is user-specific)
+	// err = s.cacheWatchProviders(response)
+	// if err != nil {
+	// 	fmt.Printf("Failed to cache watch providers: %v\n", err)
+	// }
+	fmt.Printf("DEBUG: SKIPPING TMDB provider cache write for testing\n")
 
 	return response, nil
 }
@@ -207,24 +210,24 @@ func (s *WatchProvidersService) cacheWatchProviders(response *WatchProvidersResp
 func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (bool, []WatchProvider, error) {
 	fmt.Printf("DEBUG: Starting Plex availability check for TMDB ID %d, User ID %d\n", tmdbID, userID)
 	
-	// Check cache first
-	cachedAvailable, cachedProviders, err := s.getCachedPlexAvailability(tmdbID, userID)
-	if err == nil {
-		fmt.Printf("DEBUG: Found cached Plex availability: %v (expires check passed)\n", cachedAvailable)
-		return cachedAvailable, cachedProviders, nil
-	}
-	fmt.Printf("DEBUG: No valid cache found for Plex availability: %v\n", err)
+	// TEMPORARILY DISABLE CACHE - Check cache first
+	// cachedAvailable, cachedProviders, err := s.getCachedPlexAvailability(tmdbID, userID)
+	// if err == nil {
+	// 	fmt.Printf("DEBUG: Found cached Plex availability: %v (expires check passed)\n", cachedAvailable)
+	// 	return cachedAvailable, cachedProviders, nil
+	// }
+	fmt.Printf("DEBUG: CACHE DISABLED - Skipping cache lookup for testing\n")
 
 	// Get user's Plex token
 	var plexToken string
-	err = s.db.QueryRow(`
+	err := s.db.QueryRow(`
 		SELECT plex_token FROM user_plex_tokens WHERE user_id = ?
 	`, userID).Scan(&plexToken)
 	
 	if err == sql.ErrNoRows {
-		fmt.Printf("DEBUG: User %d not connected to Plex - caching negative result\n", userID)
-		// User not connected to Plex - cache negative result
-		s.cachePlexAvailability(tmdbID, userID, false, []string{})
+		fmt.Printf("DEBUG: User %d not connected to Plex - skipping cache (disabled)\n", userID)
+		// User not connected to Plex - skip caching while testing
+		// s.cachePlexAvailability(tmdbID, userID, false, []string{})
 		return false, []WatchProvider{}, nil
 	}
 	if err != nil {
@@ -253,8 +256,8 @@ func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (boo
 	isAvailable, err := s.searchMovieWithPlexgo(plexToken, movieTitle, tmdbID)
 	if err != nil {
 		fmt.Printf("DEBUG: Plexgo search failed for movie '%s': %v\n", movieTitle, err)
-		// Cache negative result to avoid repeated failed searches
-		s.cachePlexAvailability(tmdbID, userID, false, []string{})
+		// Skip caching while testing - Cache negative result to avoid repeated failed searches
+		// s.cachePlexAvailability(tmdbID, userID, false, []string{})
 		return false, []WatchProvider{}, nil
 	}
 	fmt.Printf("DEBUG: Plexgo search completed for movie '%s'. Available: %v\n", movieTitle, isAvailable)
@@ -269,13 +272,13 @@ func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (boo
 		fmt.Printf("DEBUG: Created Plex provider entry for movie '%s'\n", movieTitle)
 	}
 	
-	// Cache the result
+	// SKIP CACHING WHILE TESTING - Cache the result
 	var servers []string
 	if isAvailable {
 		servers = []string{"found"}
 	}
-	fmt.Printf("DEBUG: Caching Plex availability result: available=%v, servers=%v\n", isAvailable, servers)
-	s.cachePlexAvailability(tmdbID, userID, isAvailable, servers)
+	fmt.Printf("DEBUG: SKIPPING cache write for testing: available=%v, servers=%v\n", isAvailable, servers)
+	// s.cachePlexAvailability(tmdbID, userID, isAvailable, servers)
 	
 	fmt.Printf("DEBUG: Completed Plex availability check for movie '%s'. Final result: %v\n", movieTitle, isAvailable)
 	return isAvailable, plexProviders, nil
