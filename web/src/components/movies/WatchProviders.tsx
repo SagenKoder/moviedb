@@ -1,4 +1,4 @@
-import { ExternalLink, Play, ShoppingCart, CreditCard, Tv } from 'lucide-react'
+import { ExternalLink, Play, ShoppingCart, CreditCard, Tv, Server } from 'lucide-react'
 import { useWatchProviders, WatchProvider } from '../../hooks/useWatchProviders'
 
 interface WatchProvidersProps {
@@ -54,7 +54,7 @@ export function WatchProviders({ tmdbId, region = 'US' }: WatchProvidersProps) {
       case 'free':
         return <Tv size={16} />
       case 'plex':
-        return <Play size={16} />
+        return <Server size={16} />
       default:
         return <ExternalLink size={16} />
     }
@@ -156,9 +156,17 @@ export function WatchProviders({ tmdbId, region = 'US' }: WatchProvidersProps) {
                         {provider.price}
                       </div>
                     )}
-                    {provider.plexServer && providerType === 'plex' && (
+                    {providerType === 'plex' && (
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {provider.plexServer}
+                        {provider.libraryName && (
+                          <span>{provider.libraryName}</span>
+                        )}
+                        {provider.libraryName && provider.plexServer && (
+                          <span> • </span>
+                        )}
+                        {provider.plexServer && (
+                          <span>{provider.plexServer}</span>
+                        )}
                       </div>
                     )}
                   </div>

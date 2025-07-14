@@ -383,8 +383,8 @@ func (s *PlexSyncService) storeLibraryItem(libraryID int64, item PlexSearchResul
 	// Convert item to JSON for metadata storage
 	metadata, _ := json.Marshal(item)
 
-	// Generate rating key from title and year (since we don't have it from search results)
-	ratingKey := fmt.Sprintf("%s-%d", strings.ReplaceAll(item.Title, " ", "-"), getYear(item.Year))
+	// Use the actual rating key from the Plex API response
+	ratingKey := item.RatingKey
 
 	_, err := s.db.Exec(`
 		INSERT INTO plex_library_items (library_id, plex_rating_key, plex_guid, title, year, type, metadata_json, updated_at)

@@ -8,6 +8,8 @@ export interface WatchProvider {
   price?: string
   link?: string
   plexServer?: string
+  plexUrl?: string
+  libraryName?: string
 }
 
 export interface WatchProvidersData {

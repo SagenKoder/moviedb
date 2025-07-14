@@ -1,10 +1,10 @@
 package services
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -22,25 +22,27 @@ type WatchProvider struct {
 	ProviderType string  `json:"providerType"` // "flatrate", "rent", "buy", "free", "plex"
 	Price        *string `json:"price,omitempty"`
 	Link         string  `json:"link,omitempty"`
-	PlexServer   string  `json:"plexServer,omitempty"` // For Plex providers
+	PlexServer   string  `json:"plexServer,omitempty"`  // For Plex providers
+	PlexURL      string  `json:"plexUrl,omitempty"`     // Direct Plex URL to launch movie
+	LibraryName  string  `json:"libraryName,omitempty"` // Plex library name
 }
 
 // WatchProvidersResponse represents the combined response
 type WatchProvidersResponse struct {
-	TMDBID         int             `json:"tmdbId"`
-	Region         string          `json:"region"`
-	TMDBLink       string          `json:"tmdbLink,omitempty"`
-	Providers      []WatchProvider `json:"providers"`
-	PlexAvailable  bool            `json:"plexAvailable"`
-	CachedAt       time.Time       `json:"cachedAt"`
-	ExpiresAt      time.Time       `json:"expiresAt"`
+	TMDBID        int             `json:"tmdbId"`
+	Region        string          `json:"region"`
+	TMDBLink      string          `json:"tmdbLink,omitempty"`
+	Providers     []WatchProvider `json:"providers"`
+	PlexAvailable bool            `json:"plexAvailable"`
+	CachedAt      time.Time       `json:"cachedAt"`
+	ExpiresAt     time.Time       `json:"expiresAt"`
 }
 
 func NewWatchProvidersService(db *sql.DB, tmdbClient *TMDBClient, plexClient *PlexClient) *WatchProvidersService {
 	return &WatchProvidersService{
 		db:           db,
 		tmdbClient:   tmdbClient,
-		plexClient:   plexClient,     // Keep for backward compatibility during migration
+		plexClient:   plexClient,        // Keep for backward compatibility during migration
 		plexgoClient: NewPlexgoClient(), // Primary client for all operations
 	}
 }
@@ -65,7 +67,7 @@ func (s *WatchProvidersService) GetWatchProviders(tmdbID int, region string, use
 	// 	}
 	// 	return cached, nil
 	// }
-	
+
 	fmt.Printf("DEBUG: CACHE DISABLED - Forcing fresh lookup for TMDB ID %d\n", tmdbID)
 
 	// Fetch fresh data from TMDB
@@ -154,24 +156,24 @@ func (s *WatchProvidersService) getCachedWatchProviders(tmdbID int, region strin
 		FROM watch_providers_cache 
 		WHERE tmdb_id = ? AND region_code = ? AND expires_at > datetime('now')
 	`
-	
+
 	var providersJSON string
 	var cachedAt, expiresAt time.Time
-	
+
 	err := s.db.QueryRow(query, tmdbID, region).Scan(&providersJSON, &cachedAt, &expiresAt)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var response WatchProvidersResponse
 	err = json.Unmarshal([]byte(providersJSON), &response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal cached providers: %w", err)
 	}
-	
+
 	response.CachedAt = cachedAt
 	response.ExpiresAt = expiresAt
-	
+
 	return &response, nil
 }
 
@@ -187,12 +189,12 @@ func (s *WatchProvidersService) cacheWatchProviders(response *WatchProvidersResp
 	}
 	cacheResponse.Providers = tmdbOnlyProviders
 	cacheResponse.PlexAvailable = false // Don't cache user-specific Plex data
-	
+
 	providersJSON, err := json.Marshal(cacheResponse)
 	if err != nil {
 		return fmt.Errorf("failed to marshal providers for caching: %w", err)
 	}
-	
+
 	query := `
 		INSERT INTO watch_providers_cache (tmdb_id, region_code, providers_data, expires_at)
 		VALUES (?, ?, ?, ?)
@@ -201,15 +203,15 @@ func (s *WatchProvidersService) cacheWatchProviders(response *WatchProvidersResp
 			cached_at = CURRENT_TIMESTAMP,
 			expires_at = excluded.expires_at
 	`
-	
+
 	_, err = s.db.Exec(query, response.TMDBID, response.Region, string(providersJSON), response.ExpiresAt)
 	return err
 }
 
-// getPlexAvailability checks if movie is available on user's Plex servers by searching directly
+// getPlexAvailability checks if movie is available on user's Plex servers using database query
 func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (bool, []WatchProvider, error) {
 	fmt.Printf("DEBUG: Starting Plex availability check for TMDB ID %d, User ID %d\n", tmdbID, userID)
-	
+
 	// TEMPORARILY DISABLE CACHE - Check cache first
 	// cachedAvailable, cachedProviders, err := s.getCachedPlexAvailability(tmdbID, userID)
 	// if err == nil {
@@ -218,69 +220,22 @@ func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (boo
 	// }
 	fmt.Printf("DEBUG: CACHE DISABLED - Skipping cache lookup for testing\n")
 
-	// Get user's Plex token
-	var plexToken string
-	err := s.db.QueryRow(`
-		SELECT plex_token FROM user_plex_tokens WHERE user_id = ?
-	`, userID).Scan(&plexToken)
-	
-	if err == sql.ErrNoRows {
-		fmt.Printf("DEBUG: User %d not connected to Plex - skipping cache (disabled)\n", userID)
-		// User not connected to Plex - skip caching while testing
-		// s.cachePlexAvailability(tmdbID, userID, false, []string{})
+	// Get detailed Plex availability with server information for clickable links
+	fmt.Printf("DEBUG: Getting detailed Plex availability using database query\n")
+	plexProviders, err := s.getPlexProvidersFromDatabase(tmdbID, userID)
+	if err != nil {
+		fmt.Printf("DEBUG: Database query failed: %v\n", err)
 		return false, []WatchProvider{}, nil
 	}
-	if err != nil {
-		fmt.Printf("DEBUG: Failed to get Plex token for user %d: %v\n", userID, err)
-		return false, []WatchProvider{}, fmt.Errorf("failed to get Plex token: %w", err)
-	}
-	// Show first 8 characters of token for debugging (safely)
-	tokenPreview := plexToken
-	if len(plexToken) > 8 {
-		tokenPreview = plexToken[:8] + "..."
-	}
-	fmt.Printf("DEBUG: Retrieved Plex token for user %d (length: %d chars, preview: %s)\n", 
-		userID, len(plexToken), tokenPreview)
+	fmt.Printf("DEBUG: Database query completed. Found %d Plex providers\n", len(plexProviders))
 
-	// Get movie title from TMDB ID to search Plex
-	var movieTitle string
-	err = s.db.QueryRow(`SELECT title FROM movies WHERE tmdb_id = ?`, tmdbID).Scan(&movieTitle)
-	if err != nil {
-		fmt.Printf("DEBUG: Failed to get movie title for TMDB ID %d: %v\n", tmdbID, err)
-		return false, []WatchProvider{}, fmt.Errorf("movie not found in database: %w", err)
-	}
-	fmt.Printf("DEBUG: Retrieved movie title for TMDB ID %d: '%s'\n", tmdbID, movieTitle)
+	isAvailable := len(plexProviders) > 0
 
-	// Search for this movie using plexgo (automatically respects user permissions)
-	fmt.Printf("DEBUG: Starting plexgo-based Plex search for movie '%s'\n", movieTitle)
-	isAvailable, err := s.searchMovieWithPlexgo(plexToken, movieTitle, tmdbID)
-	if err != nil {
-		fmt.Printf("DEBUG: Plexgo search failed for movie '%s': %v\n", movieTitle, err)
-		// Skip caching while testing - Cache negative result to avoid repeated failed searches
-		// s.cachePlexAvailability(tmdbID, userID, false, []string{})
-		return false, []WatchProvider{}, nil
-	}
-	fmt.Printf("DEBUG: Plexgo search completed for movie '%s'. Available: %v\n", movieTitle, isAvailable)
-
-	var plexProviders []WatchProvider
-	if isAvailable {
-		plexProviders = append(plexProviders, WatchProvider{
-			Name:         "Plex",
-			ProviderType: "plex",
-			PlexServer:   "Your Plex Server",
-		})
-		fmt.Printf("DEBUG: Created Plex provider entry for movie '%s'\n", movieTitle)
-	}
-	
 	// SKIP CACHING WHILE TESTING - Cache the result
-	var servers []string
-	if isAvailable {
-		servers = []string{"found"}
-	}
-	fmt.Printf("DEBUG: SKIPPING cache write for testing: available=%v, servers=%v\n", isAvailable, servers)
-	// s.cachePlexAvailability(tmdbID, userID, isAvailable, servers)
-	
-	fmt.Printf("DEBUG: Completed Plex availability check for movie '%s'. Final result: %v\n", movieTitle, isAvailable)
+	fmt.Printf("DEBUG: SKIPPING cache write for testing: available=%v\n", isAvailable)
+	// s.cachePlexAvailability(tmdbID, userID, isAvailable, []string{})
+
+	fmt.Printf("DEBUG: Completed Plex availability check. Final result: %v\n", isAvailable)
 	return isAvailable, plexProviders, nil
 }
 
@@ -291,15 +246,15 @@ func (s *WatchProvidersService) getCachedPlexAvailability(tmdbID int, userID int
 		FROM plex_availability_cache 
 		WHERE tmdb_id = ? AND user_id = ? AND expires_at > datetime('now')
 	`
-	
+
 	var isAvailable bool
 	var plexServersJSON string
-	
+
 	err := s.db.QueryRow(query, tmdbID, userID).Scan(&isAvailable, &plexServersJSON)
 	if err != nil {
 		return false, []WatchProvider{}, err
 	}
-	
+
 	var plexProviders []WatchProvider
 	if isAvailable {
 		plexProviders = append(plexProviders, WatchProvider{
@@ -308,7 +263,7 @@ func (s *WatchProvidersService) getCachedPlexAvailability(tmdbID int, userID int
 			PlexServer:   "Your Plex Server",
 		})
 	}
-	
+
 	return isAvailable, plexProviders, nil
 }
 
@@ -316,7 +271,7 @@ func (s *WatchProvidersService) getCachedPlexAvailability(tmdbID int, userID int
 func (s *WatchProvidersService) cachePlexAvailability(tmdbID int, userID int, isAvailable bool, servers []string) error {
 	serversJSON, _ := json.Marshal(servers)
 	expiresAt := time.Now().Add(48 * time.Hour)
-	
+
 	query := `
 		INSERT INTO plex_availability_cache (tmdb_id, user_id, is_available, plex_servers, expires_at)
 		VALUES (?, ?, ?, ?, ?)
@@ -326,7 +281,7 @@ func (s *WatchProvidersService) cachePlexAvailability(tmdbID int, userID int, is
 			cached_at = CURRENT_TIMESTAMP,
 			expires_at = excluded.expires_at
 	`
-	
+
 	_, err := s.db.Exec(query, tmdbID, userID, isAvailable, string(serversJSON), expiresAt)
 	return err
 }
@@ -338,75 +293,69 @@ func (s *WatchProvidersService) ClearExpiredCache() error {
 	if err != nil {
 		return fmt.Errorf("failed to clear expired watch providers cache: %w", err)
 	}
-	
+
 	// Clear expired Plex availability cache
 	_, err = s.db.Exec("DELETE FROM plex_availability_cache WHERE expires_at <= datetime('now')")
 	if err != nil {
 		return fmt.Errorf("failed to clear expired Plex availability cache: %w", err)
 	}
-	
+
 	return nil
 }
 
+// getPlexProvidersFromDatabase gets detailed Plex provider information with clickable URLs
+func (s *WatchProvidersService) getPlexProvidersFromDatabase(tmdbID int, userID int) ([]WatchProvider, error) {
+	query := `
+		SELECT DISTINCT 
+			ps.name as server_name,
+			ps.machine_id,
+			pl.title as library_name,
+			pl.section_key,
+			pli.plex_rating_key,
+			pli.plex_guid,
+			pli.title as movie_title
+		FROM plex_library_items pli
+		JOIN plex_libraries pl ON pli.library_id = pl.id
+		JOIN plex_servers ps ON pl.server_id = ps.id
+		JOIN user_plex_access upa ON pl.id = upa.library_id
+		WHERE upa.user_id = ? AND pli.tmdb_id = ? AND pli.is_active = 1 AND upa.is_active = 1
+	`
 
-
-
-// searchMovieWithPlexgo searches for a movie using plexgo SDK (with automatic permission filtering)
-func (s *WatchProvidersService) searchMovieWithPlexgo(token, movieTitle string, tmdbID int) (bool, error) {
-	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Starting permission-aware search for movie '%s' (TMDB ID: %d)\n", movieTitle, tmdbID)
-	ctx := context.Background()
-	
-	// Get user's accessible servers using plexgo (automatically filtered by permissions)
-	servers, err := s.plexgoClient.GetServers(ctx, token)
+	rows, err := s.db.Query(query, userID, tmdbID)
 	if err != nil {
-		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Failed to get accessible servers: %v\n", err)
-		return false, fmt.Errorf("failed to get accessible servers: %w", err)
+		return nil, fmt.Errorf("failed to query Plex providers: %w", err)
 	}
-	
-	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Found %d accessible servers for user\n", len(servers))
-	
-	// If no servers accessible, movie can't be available
-	if len(servers) == 0 {
-		fmt.Printf("DEBUG: [searchMovieWithPlexgo] User has no accessible Plex servers\n")
-		return false, nil
-	}
-	
-	// Search each accessible server
-	for i, server := range servers {
-		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Searching server %d/%d: '%s' (owned: %v)\n", 
-			i+1, len(servers), server.Name, server.Owned)
-		
-		// Get the best connection for this server
-		connection := s.plexgoClient.GetBestConnection(server)
-		if connection == nil {
-			fmt.Printf("DEBUG: [searchMovieWithPlexgo] Server '%s' has no usable connections\n", server.Name)
-			continue
-		}
-		
-		serverURL := s.plexgoClient.BuildServerURL(*connection)
-		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Using server URL: %s\n", serverURL)
-		
-		// Use the server's access token for authentication
-		searchToken := server.AccessToken
-		if searchToken == "" {
-			searchToken = token // Fallback to user token
-		}
-		
-		// Search for the movie on this server using plexgo
-		found, err := s.plexgoClient.SearchMovieByTitle(ctx, searchToken, serverURL, movieTitle)
+	defer rows.Close()
+
+	var providers []WatchProvider
+	for rows.Next() {
+		var serverName, machineID, libraryName, movieTitle, ratingKey, plexGUID string
+		var sectionKey int
+
+		err := rows.Scan(&serverName, &machineID, &libraryName, &sectionKey, &ratingKey, &plexGUID, &movieTitle)
 		if err != nil {
-			fmt.Printf("DEBUG: [searchMovieWithPlexgo] Search failed on server '%s': %v\n", server.Name, err)
 			continue
 		}
-		
-		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Search completed on server '%s'. Found: %v\n", server.Name, found)
-		
-		if found {
-			fmt.Printf("DEBUG: [searchMovieWithPlexgo] ✓ Found '%s' on accessible Plex server '%s'\n", movieTitle, server.Name)
-			return true, nil
+
+		// Use the rating key directly from the database - now that we've updated the sync
+		// to store the actual numeric rating key from the Plex API
+		actualRatingKey := ratingKey
+
+		// Create Plex web link URL that works in any browser
+		// Format: https://app.plex.tv/desktop/#!/server/{machineID}/details?key=%2Flibrary%2Fmetadata%2F{ratingKey}
+		plexURL := fmt.Sprintf("https://app.plex.tv/desktop/#!/server/%s/details?key=%%2Flibrary%%2Fmetadata%%2F%s", machineID, actualRatingKey)
+
+		provider := WatchProvider{
+			Name:         fmt.Sprintf("Plex (%s)", serverName),
+			ProviderType: "plex",
+			PlexServer:   serverName,
+			PlexURL:      plexURL,
+			LibraryName:  libraryName,
+			Link:         plexURL, // Also set as generic link for UI consistency
 		}
+
+		providers = append(providers, provider)
 	}
-	
-	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Movie '%s' not found on any of %d accessible servers\n", movieTitle, len(servers))
-	return false, nil
+
+	return providers, nil
 }

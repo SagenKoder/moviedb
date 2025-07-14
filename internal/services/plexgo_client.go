@@ -59,10 +59,11 @@ type PlexLibrary struct {
 
 // PlexSearchResult represents a search result
 type PlexSearchResult struct {
-	Title string
-	Year  *int
-	Type  string
-	GUID  string
+	Title     string
+	Year      *int
+	Type      string
+	GUID      string
+	RatingKey string // The numeric rating key from Plex API
 }
 
 func NewPlexgoClient() *PlexgoClient {
@@ -197,9 +198,10 @@ func (p *PlexgoClient) SearchAllLibraries(ctx context.Context, token, serverURL,
 				// Only include movies in results
 				if metadata.Type == operations.GetSearchAllLibrariesTypeMovie {
 					result := PlexSearchResult{
-						Title: metadata.Title,
-						Type:  "movie",
-						GUID:  metadata.GUID,
+						Title:     metadata.Title,
+						Type:      "movie",
+						GUID:      metadata.GUID,
+						RatingKey: metadata.RatingKey,
 					}
 					
 					// Convert year if available
@@ -282,9 +284,10 @@ func (p *PlexgoClient) GetMoviesInLibrary(ctx context.Context, token, serverURL 
 				// Only include movies (type 1 = movie) - using string comparison as type is complex
 				if string(metadata.Type) == "1" || string(metadata.Type) == "movie" {
 					result := PlexSearchResult{
-						Title: metadata.Title,
-						Type:  "movie",
-						GUID:  metadata.GUID,
+						Title:     metadata.Title,
+						Type:      "movie",
+						GUID:      metadata.GUID,
+						RatingKey: metadata.RatingKey,
 					}
 					
 					// Convert year if available
@@ -362,9 +365,10 @@ func (p *PlexgoClient) getMoviesViaLibraryItems(ctx context.Context, client *ple
 			// Only include movies (type 1 = movie)
 			if metadata.Type == operations.GetLibraryItemsTypeMovie {
 				result := PlexSearchResult{
-					Title: metadata.Title,
-					Type:  "movie",
-					GUID:  metadata.GUID,
+					Title:     metadata.Title,
+					Type:      "movie",
+					GUID:      metadata.GUID,
+					RatingKey: metadata.RatingKey,
 				}
 				
 				// Convert year if available
