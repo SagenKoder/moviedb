@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,8 +15,9 @@ import (
 )
 
 type PlexHandler struct {
-	db         *sql.DB
-	plexClient *services.PlexClient
+	db           *sql.DB
+	plexClient   *services.PlexClient   // Keep for authentication
+	plexgoClient *services.PlexgoClient // Use for server operations
 }
 
 type PlexPinRequest struct {
@@ -36,8 +38,9 @@ type PlexStatusResponse struct {
 
 func NewPlexHandler(db *sql.DB) *PlexHandler {
 	return &PlexHandler{
-		db:         db,
-		plexClient: services.NewPlexClient(),
+		db:           db,
+		plexClient:   services.NewPlexClient(),
+		plexgoClient: services.NewPlexgoClient(),
 	}
 }
 
@@ -166,11 +169,12 @@ func (h *PlexHandler) CheckPlexAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get server count
-	servers, err := h.plexClient.GetServers(pinResp.AuthToken)
+	// Get server count using plexgo (automatically filtered by permissions)
+	ctx := context.Background()
+	servers, err := h.plexgoClient.GetServers(ctx, pinResp.AuthToken)
 	if err != nil {
 		// Don't fail if we can't get servers, just set count to 0
-		servers = []map[string]interface{}{}
+		servers = []services.PlexServer{}
 	}
 
 	// Store the Plex token and user info

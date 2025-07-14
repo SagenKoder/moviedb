@@ -1,17 +1,18 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 )
 
 type WatchProvidersService struct {
-	db         *sql.DB
-	tmdbClient *TMDBClient
-	plexClient *PlexClient
+	db           *sql.DB
+	tmdbClient   *TMDBClient
+	plexClient   *PlexClient   // Keep for backward compatibility
+	plexgoClient *PlexgoClient // Use for new permission-aware operations
 }
 
 // WatchProvider represents a unified watch provider (TMDB + Plex)
@@ -37,9 +38,10 @@ type WatchProvidersResponse struct {
 
 func NewWatchProvidersService(db *sql.DB, tmdbClient *TMDBClient, plexClient *PlexClient) *WatchProvidersService {
 	return &WatchProvidersService{
-		db:         db,
-		tmdbClient: tmdbClient,
-		plexClient: plexClient,
+		db:           db,
+		tmdbClient:   tmdbClient,
+		plexClient:   plexClient,     // Keep for backward compatibility during migration
+		plexgoClient: NewPlexgoClient(), // Primary client for all operations
 	}
 }
 
@@ -246,16 +248,16 @@ func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (boo
 	}
 	fmt.Printf("DEBUG: Retrieved movie title for TMDB ID %d: '%s'\n", tmdbID, movieTitle)
 
-	// Search for this movie directly on Plex servers
-	fmt.Printf("DEBUG: Starting Plex server search for movie '%s'\n", movieTitle)
-	isAvailable, err := s.searchMovieOnPlex(plexToken, movieTitle, tmdbID)
+	// Search for this movie using plexgo (automatically respects user permissions)
+	fmt.Printf("DEBUG: Starting plexgo-based Plex search for movie '%s'\n", movieTitle)
+	isAvailable, err := s.searchMovieWithPlexgo(plexToken, movieTitle, tmdbID)
 	if err != nil {
-		fmt.Printf("DEBUG: Plex search failed for movie '%s': %v\n", movieTitle, err)
+		fmt.Printf("DEBUG: Plexgo search failed for movie '%s': %v\n", movieTitle, err)
 		// Cache negative result to avoid repeated failed searches
 		s.cachePlexAvailability(tmdbID, userID, false, []string{})
 		return false, []WatchProvider{}, nil
 	}
-	fmt.Printf("DEBUG: Plex search completed for movie '%s'. Available: %v\n", movieTitle, isAvailable)
+	fmt.Printf("DEBUG: Plexgo search completed for movie '%s'. Available: %v\n", movieTitle, isAvailable)
 
 	var plexProviders []WatchProvider
 	if isAvailable {
@@ -343,253 +345,65 @@ func (s *WatchProvidersService) ClearExpiredCache() error {
 	return nil
 }
 
-// searchMovieOnPlex searches for a specific movie on user's Plex servers
-func (s *WatchProvidersService) searchMovieOnPlex(token, movieTitle string, tmdbID int) (bool, error) {
-	fmt.Printf("DEBUG: [searchMovieOnPlex] Starting search for movie '%s' (TMDB ID: %d)\n", movieTitle, tmdbID)
+
+
+
+// searchMovieWithPlexgo searches for a movie using plexgo SDK (with automatic permission filtering)
+func (s *WatchProvidersService) searchMovieWithPlexgo(token, movieTitle string, tmdbID int) (bool, error) {
+	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Starting permission-aware search for movie '%s' (TMDB ID: %d)\n", movieTitle, tmdbID)
+	ctx := context.Background()
 	
-	// Get user's Plex servers
-	fmt.Printf("DEBUG: [searchMovieOnPlex] Fetching user's Plex servers...\n")
-	servers, err := s.plexClient.GetServers(token)
+	// Get user's accessible servers using plexgo (automatically filtered by permissions)
+	servers, err := s.plexgoClient.GetServers(ctx, token)
 	if err != nil {
-		fmt.Printf("DEBUG: [searchMovieOnPlex] Failed to get Plex servers: %v\n", err)
-		return false, fmt.Errorf("failed to get Plex servers: %w", err)
+		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Failed to get accessible servers: %v\n", err)
+		return false, fmt.Errorf("failed to get accessible servers: %w", err)
 	}
-	fmt.Printf("DEBUG: [searchMovieOnPlex] Retrieved %d Plex servers\n", len(servers))
-
-	// Search each server for the movie
+	
+	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Found %d accessible servers for user\n", len(servers))
+	
+	// If no servers accessible, movie can't be available
+	if len(servers) == 0 {
+		fmt.Printf("DEBUG: [searchMovieWithPlexgo] User has no accessible Plex servers\n")
+		return false, nil
+	}
+	
+	// Search each accessible server
 	for i, server := range servers {
-		serverName, _ := server["name"].(string)
-		owned, _ := server["owned"].(bool)
-		fmt.Printf("DEBUG: [searchMovieOnPlex] Processing server %d/%d: '%s' (owned: %v)\n", i+1, len(servers), serverName, owned)
+		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Searching server %d/%d: '%s' (owned: %v)\n", 
+			i+1, len(servers), server.Name, server.Owned)
 		
-		// Extract server URL from connections array - only use external connections
-		var serverURL string
-		var totalConnections int
-		var externalConnections int
-		
-		if connections, ok := server["connections"].([]interface{}); ok {
-			totalConnections = len(connections)
-			fmt.Printf("DEBUG: [searchMovieOnPlex] Server '%s' has %d connections\n", serverName, totalConnections)
-			
-			for j, conn := range connections {
-				if connMap, ok := conn.(map[string]interface{}); ok {
-					uri, hasURI := connMap["uri"].(string)
-					local, hasLocal := connMap["local"].(bool)
-					fmt.Printf("DEBUG: [searchMovieOnPlex] Connection %d: URI=%s, Local=%v, HasURI=%v, HasLocal=%v\n", j+1, uri, local, hasURI, hasLocal)
-					
-					if hasURI && hasLocal && !local {
-						serverURL = uri
-						externalConnections++
-						fmt.Printf("DEBUG: [searchMovieOnPlex] Selected external connection: %s\n", uri)
-						break
-					}
-				}
-			}
-		} else {
-			fmt.Printf("DEBUG: [searchMovieOnPlex] Server '%s' has no connections array\n", serverName)
-		}
-		
-		fmt.Printf("DEBUG: [searchMovieOnPlex] Server '%s' summary: %d total connections, %d external, selected URL: '%s'\n", 
-			serverName, totalConnections, externalConnections, serverURL)
-		
-		if serverURL == "" {
-			fmt.Printf("DEBUG: [searchMovieOnPlex] Skipping server '%s' - no accessible external URL\n", serverName)
+		// Get the best connection for this server
+		connection := s.plexgoClient.GetBestConnection(server)
+		if connection == nil {
+			fmt.Printf("DEBUG: [searchMovieWithPlexgo] Server '%s' has no usable connections\n", server.Name)
 			continue
 		}
-
-		fmt.Printf("DEBUG: [searchMovieOnPlex] Searching for '%s' on Plex server '%s' at %s\n", movieTitle, serverName, serverURL)
 		
-		// Search for the movie on this server
-		found, err := s.searchMovieOnServer(token, serverURL, movieTitle)
+		serverURL := s.plexgoClient.BuildServerURL(*connection)
+		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Using server URL: %s\n", serverURL)
+		
+		// Use the server's access token for authentication
+		searchToken := server.AccessToken
+		if searchToken == "" {
+			searchToken = token // Fallback to user token
+		}
+		
+		// Search for the movie on this server using plexgo
+		found, err := s.plexgoClient.SearchMovieByTitle(ctx, searchToken, serverURL, movieTitle)
 		if err != nil {
-			fmt.Printf("DEBUG: [searchMovieOnPlex] Search failed on server '%s': %v\n", serverName, err)
+			fmt.Printf("DEBUG: [searchMovieWithPlexgo] Search failed on server '%s': %v\n", server.Name, err)
 			continue
 		}
 		
-		fmt.Printf("DEBUG: [searchMovieOnPlex] Search completed on server '%s'. Found: %v\n", serverName, found)
+		fmt.Printf("DEBUG: [searchMovieWithPlexgo] Search completed on server '%s'. Found: %v\n", server.Name, found)
 		
 		if found {
-			fmt.Printf("DEBUG: [searchMovieOnPlex] ✓ Found '%s' on Plex server '%s' - returning success\n", movieTitle, serverName)
+			fmt.Printf("DEBUG: [searchMovieWithPlexgo] ✓ Found '%s' on accessible Plex server '%s'\n", movieTitle, server.Name)
 			return true, nil
-		} else {
-			fmt.Printf("DEBUG: [searchMovieOnPlex] ✗ Movie '%s' not found on server '%s'\n", movieTitle, serverName)
 		}
 	}
-
-	fmt.Printf("DEBUG: [searchMovieOnPlex] Search completed across all %d servers. Movie '%s' not found anywhere.\n", len(servers), movieTitle)
-	return false, nil
-}
-
-// searchMovieOnServer searches for a movie on a specific Plex server
-func (s *WatchProvidersService) searchMovieOnServer(token, serverURL, movieTitle string) (bool, error) {
-	// For shared users, direct server access often fails with 401
-	// Try using Plex.tv relay service instead of direct server access
-	fmt.Printf("DEBUG: [searchMovieOnServer] Attempting shared user search via Plex.tv relay...\n")
 	
-	// Try to search via Plex.tv using the server's machineIdentifier
-	relaySearch, err := s.searchViaPlexRelay(token, movieTitle)
-	if err == nil {
-		fmt.Printf("DEBUG: [searchMovieOnServer] Plex.tv relay search succeeded\n")
-		return relaySearch, nil
-	}
-	fmt.Printf("DEBUG: [searchMovieOnServer] Plex.tv relay search failed: %v\n", err)
-	
-	// Fallback to direct server access (which we know will likely fail for shared users)
-	fmt.Printf("DEBUG: [searchMovieOnServer] Falling back to direct server access...\n")
-	encodedTitle := url.QueryEscape(movieTitle)
-	searchURL := fmt.Sprintf("%s/search?query=%s", serverURL, encodedTitle)
-	fmt.Printf("DEBUG: [searchMovieOnServer] Movie title: '%s' -> encoded: '%s'\n", movieTitle, encodedTitle)
-	fmt.Printf("DEBUG: [searchMovieOnServer] Making request to: %s\n", searchURL)
-	
-	headers := map[string]string{
-		"X-Plex-Token":             token,
-		"X-Plex-Client-Identifier": "moviedb-watch-providers",
-		"Accept":                   "application/json",
-	}
-	fmt.Printf("DEBUG: [searchMovieOnServer] Request headers: X-Plex-Token=[%d chars], Client-ID=%s\n", 
-		len(token), headers["X-Plex-Client-Identifier"])
-	
-	resp, err := s.plexClient.MakeRequest("GET", searchURL, headers, nil)
-	if err != nil {
-		fmt.Printf("DEBUG: [searchMovieOnServer] HTTP request failed: %v\n", err)
-		return false, err
-	}
-	defer resp.Body.Close()
-	
-	fmt.Printf("DEBUG: [searchMovieOnServer] HTTP response status: %d\n", resp.StatusCode)
-	
-	if resp.StatusCode != 200 {
-		fmt.Printf("DEBUG: [searchMovieOnServer] Non-200 status code: %d\n", resp.StatusCode)
-		
-		// Try to read error response body for debugging
-		if resp.Body != nil {
-			bodyBytes := make([]byte, 1024) // Read first 1KB of error response
-			n, readErr := resp.Body.Read(bodyBytes)
-			if readErr == nil || n > 0 {
-				fmt.Printf("DEBUG: [searchMovieOnServer] Error response body: %s\n", string(bodyBytes[:n]))
-			}
-		}
-		
-		return false, fmt.Errorf("search returned status %d", resp.StatusCode)
-	}
-	
-	var searchResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&searchResponse); err != nil {
-		fmt.Printf("DEBUG: [searchMovieOnServer] Failed to decode JSON response: %v\n", err)
-		return false, err
-	}
-	
-	fmt.Printf("DEBUG: [searchMovieOnServer] Parsed JSON response, looking for MediaContainer...\n")
-	
-	// Check if any movies were found in the search results
-	if mediaContainer, ok := searchResponse["MediaContainer"].(map[string]interface{}); ok {
-		fmt.Printf("DEBUG: [searchMovieOnServer] Found MediaContainer, looking for Metadata...\n")
-		
-		if metadata, ok := mediaContainer["Metadata"].([]interface{}); ok {
-			fmt.Printf("DEBUG: [searchMovieOnServer] Found Metadata array with %d items\n", len(metadata))
-			
-			movieCount := 0
-			for i, item := range metadata {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					itemType, hasType := itemMap["type"].(string)
-					title, hasTitle := itemMap["title"].(string)
-					
-					fmt.Printf("DEBUG: [searchMovieOnServer] Item %d: type=%s, title=%s, hasType=%v, hasTitle=%v\n", 
-						i+1, itemType, title, hasType, hasTitle)
-					
-					// Check if this is a movie type
-					if hasType && itemType == "movie" {
-						movieCount++
-						fmt.Printf("DEBUG: [searchMovieOnServer] ✓ Found movie #%d: '%s'\n", movieCount, title)
-						return true, nil
-					}
-				} else {
-					fmt.Printf("DEBUG: [searchMovieOnServer] Item %d: could not parse as map\n", i+1)
-				}
-			}
-			
-			fmt.Printf("DEBUG: [searchMovieOnServer] Searched %d items, found %d movies, none matched\n", len(metadata), movieCount)
-		} else {
-			fmt.Printf("DEBUG: [searchMovieOnServer] MediaContainer has no Metadata array or wrong type\n")
-		}
-	} else {
-		fmt.Printf("DEBUG: [searchMovieOnServer] Response has no MediaContainer or wrong type\n")
-		fmt.Printf("DEBUG: [searchMovieOnServer] Response keys: ")
-		for key := range searchResponse {
-			fmt.Printf("%s ", key)
-		}
-		fmt.Printf("\n")
-	}
-	
-	fmt.Printf("DEBUG: [searchMovieOnServer] No movies found in search results\n")
-	return false, nil
-}
-
-// searchViaPlexRelay attempts to search for movies using Plex.tv central services
-// This approach works better for shared users who don't have direct server access
-func (s *WatchProvidersService) searchViaPlexRelay(token, movieTitle string) (bool, error) {
-	fmt.Printf("DEBUG: [searchViaPlexRelay] Searching for '%s' via Plex.tv services\n", movieTitle)
-	
-	// Try the Plex.tv global search endpoint that works with shared access
-	encodedTitle := url.QueryEscape(movieTitle)
-	searchURL := fmt.Sprintf("https://plex.tv/api/v2/search?query=%s", encodedTitle)
-	
-	fmt.Printf("DEBUG: [searchViaPlexRelay] Making request to: %s\n", searchURL)
-	
-	headers := map[string]string{
-		"X-Plex-Token":             token,
-		"X-Plex-Client-Identifier": "moviedb-watch-providers",
-		"Accept":                   "application/json",
-	}
-	
-	resp, err := s.plexClient.MakeRequest("GET", searchURL, headers, nil)
-	if err != nil {
-		fmt.Printf("DEBUG: [searchViaPlexRelay] HTTP request failed: %v\n", err)
-		return false, err
-	}
-	defer resp.Body.Close()
-	
-	fmt.Printf("DEBUG: [searchViaPlexRelay] HTTP response status: %d\n", resp.StatusCode)
-	
-	if resp.StatusCode != 200 {
-		fmt.Printf("DEBUG: [searchViaPlexRelay] Non-200 status code: %d\n", resp.StatusCode)
-		
-		// Try to read error response body for debugging
-		if resp.Body != nil {
-			bodyBytes := make([]byte, 1024)
-			n, readErr := resp.Body.Read(bodyBytes)
-			if readErr == nil || n > 0 {
-				fmt.Printf("DEBUG: [searchViaPlexRelay] Error response body: %s\n", string(bodyBytes[:n]))
-			}
-		}
-		
-		return false, fmt.Errorf("Plex.tv search returned status %d", resp.StatusCode)
-	}
-	
-	var searchResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&searchResponse); err != nil {
-		fmt.Printf("DEBUG: [searchViaPlexRelay] Failed to decode JSON response: %v\n", err)
-		return false, err
-	}
-	
-	fmt.Printf("DEBUG: [searchViaPlexRelay] Parsing Plex.tv search response...\n")
-	
-	// The Plex.tv response structure might be different - let's examine it
-	fmt.Printf("DEBUG: [searchViaPlexRelay] Response keys: ")
-	for key := range searchResponse {
-		fmt.Printf("%s ", key)
-	}
-	fmt.Printf("\n")
-	
-	// Look for any indication that movies were found
-	// This is a simplified check - we're mainly testing if the endpoint works
-	if len(searchResponse) > 0 {
-		fmt.Printf("DEBUG: [searchViaPlexRelay] Plex.tv search returned data - assuming movie availability can be checked via this method\n")
-		// For now, return true if we get any response data
-		// In practice, you'd want to parse the specific response structure
-		return true, nil
-	}
-	
-	fmt.Printf("DEBUG: [searchViaPlexRelay] No data in Plex.tv search response\n")
+	fmt.Printf("DEBUG: [searchMovieWithPlexgo] Movie '%s' not found on any of %d accessible servers\n", movieTitle, len(servers))
 	return false, nil
 }
