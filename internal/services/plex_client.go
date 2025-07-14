@@ -158,11 +158,11 @@ type PlexLibraryItem struct {
 // GetLibraries gets all libraries from a Plex server
 func (p *PlexClient) GetLibraries(token, serverURL string) ([]map[string]interface{}, error) {
 	headers := p.getHeaders(token)
-	
+
 	url := fmt.Sprintf("%s/library/sections", serverURL)
 	resp, err := p.MakeRequest("GET", url, headers, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get libraries: %w", err)
+		return nil, fmt.Errorf("is itfailed to get libraries: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -186,7 +186,7 @@ func (p *PlexClient) GetLibraries(token, serverURL string) ([]map[string]interfa
 // GetLibraryContent gets all movies from a specific library
 func (p *PlexClient) GetLibraryContent(token, serverURL, libraryKey string) ([]PlexLibraryItem, error) {
 	headers := p.getHeaders(token)
-	
+
 	url := fmt.Sprintf("%s/library/sections/%s/all", serverURL, libraryKey)
 	resp, err := p.MakeRequest("GET", url, headers, nil)
 	if err != nil {
@@ -210,7 +210,6 @@ func (p *PlexClient) GetLibraryContent(token, serverURL, libraryKey string) ([]P
 
 	return contentResp.MediaContainer.Metadata, nil
 }
-
 
 func (p *PlexClient) getHeaders(token string) map[string]string {
 	headers := map[string]string{

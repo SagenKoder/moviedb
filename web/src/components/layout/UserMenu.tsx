@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { ChevronDown, Moon, Sun, Server, CheckCircle, Loader2 } from 'lucide-react'
+import { ChevronDown, Moon, Sun, Server, CheckCircle, Loader2, RefreshCw, X, AlertCircle } from 'lucide-react'
 import { LogoutButton } from '../auth/LogoutButton'
 import { PlexConnectionModal } from '../plex/PlexConnectionModal'
 import { usePlex } from '../../hooks/usePlex'
@@ -15,7 +15,16 @@ export function UserMenu({ isDarkMode, onToggleDarkMode }: UserMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [showPlexModal, setShowPlexModal] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-  const { status: plexStatus, loading: plexLoading, disconnect: disconnectPlex, refreshStatus: refreshPlexStatus } = usePlex()
+  const { 
+    status: plexStatus, 
+    loading: plexLoading, 
+    disconnect: disconnectPlex, 
+    refreshStatus: refreshPlexStatus,
+    syncStatus,
+    syncLoading,
+    triggerSync,
+    cancelSync
+  } = usePlex()
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -109,6 +118,76 @@ export function UserMenu({ isDarkMode, onToggleDarkMode }: UserMenuProps) {
                     </div>
                   </div>
                 </div>
+                
+                {/* Sync Status and Controls */}
+                <div className="mt-3 mb-2">
+                  {syncStatus.isActive && syncStatus.currentJob ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <Loader2 size={12} className="mr-2 animate-spin text-blue-500" />
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Syncing...</span>
+                        </div>
+                        <button
+                          onClick={cancelSync}
+                          className="text-xs text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                        <div 
+                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${syncStatus.currentJob.progress}%` }}
+                        />
+                      </div>
+                      
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {syncStatus.currentJob.current_step}
+                      </div>
+                      
+                      {syncStatus.currentJob.processed_items > 0 && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {syncStatus.currentJob.processed_items} of {syncStatus.currentJob.total_items} items
+                        </div>
+                      )}
+                    </div>
+                  ) : syncStatus.error ? (
+                    <div className="flex items-center text-xs text-red-600 dark:text-red-400">
+                      <AlertCircle size={12} className="mr-1" />
+                      Sync failed
+                    </div>
+                  ) : syncStatus.lastSync ? (
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Last sync: {new Date(syncStatus.lastSync).toLocaleString()}
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Sync Button */}
+                <button
+                  onClick={async () => {
+                    try {
+                      await triggerSync()
+                      // Keep menu open to show progress
+                    } catch (err) {
+                      console.error('Sync failed:', err)
+                    }
+                  }}
+                  disabled={syncLoading || syncStatus.isActive}
+                  className="w-full mb-2 flex items-center justify-center px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded transition-colors"
+                >
+                  {syncLoading || syncStatus.isActive ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <>
+                      <RefreshCw size={12} className="mr-1" />
+                      Sync Plex Data
+                    </>
+                  )}
+                </button>
+
                 <button
                   onClick={async () => {
                     try {

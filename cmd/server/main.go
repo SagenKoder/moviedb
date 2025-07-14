@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -54,6 +55,22 @@ func main() {
 	// Start movie sync scheduler
 	movieSyncService.StartSyncScheduler()
 
+	// Initialize enhanced Plex integration
+	plexIntegration := services.NewPlexIntegrationManager(db, tmdbClient)
+	
+	// Start Plex background services
+	ctx := context.Background()
+	if err := plexIntegration.Start(ctx); err != nil {
+		log.Fatal("Failed to start Plex integration:", err)
+	}
+	
+	// Setup graceful shutdown for Plex services
+	defer func() {
+		if err := plexIntegration.Stop(); err != nil {
+			log.Printf("Error stopping Plex integration: %v", err)
+		}
+	}()
+
 	// Initialize handlers
 	movieHandler := handlers.NewMovieHandler(db, tmdbClient)
 	userHandler := handlers.NewUserHandler(db)
@@ -63,6 +80,9 @@ func main() {
 	plexHandler := handlers.NewPlexHandler(db)
 	plexSyncHandler := handlers.NewPlexSyncHandler(db, tmdbClient)
 	watchProvidersHandler := handlers.NewWatchProvidersHandler(db, tmdbClient, services.NewPlexClient())
+	
+	// Initialize enhanced Plex sync handler
+	plexSyncEnhancedHandler := handlers.NewPlexSyncEnhancedHandler(plexIntegration.SyncService(), authMiddleware)
 
 	// Setup router using standard library ServeMux
 	mux := http.NewServeMux()
@@ -129,6 +149,13 @@ func main() {
 	mux.HandleFunc("POST /api/plex/sync", requireAuth(http.HandlerFunc(plexSyncHandler.SyncPlexLibrary)).ServeHTTP)
 	mux.HandleFunc("GET /api/plex/mappings", requireAuth(http.HandlerFunc(plexSyncHandler.GetPlexMappings)).ServeHTTP)
 	mux.HandleFunc("GET /api/plex/mappings/search", requireAuth(http.HandlerFunc(plexSyncHandler.SearchPlexMappings)).ServeHTTP)
+	
+	// Enhanced Plex sync routes
+	mux.HandleFunc("POST /api/plex/sync/enhanced", requireAuth(http.HandlerFunc(plexSyncEnhancedHandler.TriggerFullSync)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/sync/status/{jobId}", requireAuth(http.HandlerFunc(plexSyncEnhancedHandler.GetJobStatus)).ServeHTTP)
+	mux.HandleFunc("POST /api/plex/sync/{jobId}/cancel", requireAuth(http.HandlerFunc(plexSyncEnhancedHandler.CancelJob)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/libraries", requireAuth(http.HandlerFunc(plexSyncEnhancedHandler.GetUserLibraries)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/jobs", requireAuth(http.HandlerFunc(plexSyncEnhancedHandler.GetUserJobs)).ServeHTTP)
 
 	// Watch providers routes
 	mux.HandleFunc("GET /api/movies/{id}/watch-providers", requireAuth(http.HandlerFunc(watchProvidersHandler.GetMovieWatchProviders)).ServeHTTP)

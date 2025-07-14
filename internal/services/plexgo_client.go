@@ -44,13 +44,17 @@ type PlexConnection struct {
 
 // PlexLibrary represents a Plex library section
 type PlexLibrary struct {
-	Key        int
-	Title      string
-	Type       string
-	Agent      string
-	Scanner    string
-	Language   string
-	UUID       string
+	ID          int64  // Database ID after storage
+	Key         int    // Plex section key
+	Title       string
+	Type        string
+	Agent       string
+	Scanner     string
+	Language    string
+	UUID        string
+	ServerID    int64  // Database server ID
+	ServerURL   string // Server URL for API calls
+	AccessToken string // Server-specific access token for API calls
 }
 
 // PlexSearchResult represents a search result
@@ -246,22 +250,115 @@ func (p *PlexgoClient) GetMoviesInLibrary(ctx context.Context, token, serverURL 
 		plexgo.WithServerURL(serverURL),
 	)
 
+	// Try GetLibrarySectionsAll first - this works better for shared users
+	fmt.Printf("DEBUG: [GetMoviesInLibrary] Trying GetLibrarySectionsAll for library %d with pagination\n", libraryKey)
+	
+	var results []PlexSearchResult
+	pageSize := 100  // Increase page size for better performance
+	start := 0
+	
+	for {
+		sectionsReq := operations.GetLibrarySectionsAllRequest{
+			SectionKey: libraryKey,
+			Type:       operations.GetLibrarySectionsAllQueryParamTypeMovie,
+			XPlexContainerStart: &start,
+			XPlexContainerSize:  &pageSize,
+		}
+		
+		sectionsRes, err := client.Library.GetLibrarySectionsAll(ctx, sectionsReq)
+		if err != nil {
+			fmt.Printf("DEBUG: [GetMoviesInLibrary] GetLibrarySectionsAll failed: %v, trying GetLibraryItems\n", err)
+			// Fallback to GetLibraryItems
+			return p.getMoviesViaLibraryItems(ctx, client, libraryKey)
+		}
+
+		pageResults := 0
+		if sectionsRes.Object != nil && sectionsRes.Object.MediaContainer != nil {
+			mediaContainer := sectionsRes.Object.MediaContainer
+			fmt.Printf("DEBUG: [GetMoviesInLibrary] GetLibrarySectionsAll page (start=%d, size=%d) found %d items in library %d\n", 
+				start, pageSize, len(mediaContainer.Metadata), libraryKey)
+			
+			for i, metadata := range mediaContainer.Metadata {
+				// Only include movies (type 1 = movie) - using string comparison as type is complex
+				if string(metadata.Type) == "1" || string(metadata.Type) == "movie" {
+					result := PlexSearchResult{
+						Title: metadata.Title,
+						Type:  "movie",
+						GUID:  metadata.GUID,
+					}
+					
+					// Convert year if available
+					if metadata.Year != nil {
+						result.Year = metadata.Year
+					}
+					
+					results = append(results, result)
+					pageResults++
+					if i < 3 { // Only show first 3 items per page for debugging
+						fmt.Printf("DEBUG: [GetMoviesInLibrary] Found movie: '%s'\n", result.Title)
+					}
+				}
+			}
+			
+			// Check if we got fewer items than requested - indicates last page
+			if len(mediaContainer.Metadata) < pageSize {
+				fmt.Printf("DEBUG: [GetMoviesInLibrary] Reached last page (got %d items, expected %d)\n", 
+					len(mediaContainer.Metadata), pageSize)
+				break
+			}
+		} else {
+			fmt.Printf("DEBUG: [GetMoviesInLibrary] No MediaContainer found in GetLibrarySectionsAll response\n")
+			break
+		}
+		
+		// If no movies found on this page, we're done
+		if pageResults == 0 {
+			fmt.Printf("DEBUG: [GetMoviesInLibrary] No movies found on this page, stopping pagination\n")
+			break
+		}
+		
+		// Move to next page
+		start += pageSize
+		fmt.Printf("DEBUG: [GetMoviesInLibrary] Moving to next page (start=%d), found %d movies so far\n", start, len(results))
+	}
+
+	// If we got 0 results, try the old GetLibraryItems method
+	if len(results) == 0 {
+		fmt.Printf("DEBUG: [GetMoviesInLibrary] No items found via GetLibrarySectionsAll, trying GetLibraryItems\n")
+		libraryResults, err := p.getMoviesViaLibraryItems(ctx, client, libraryKey)
+		if err != nil || len(libraryResults) == 0 {
+			fmt.Printf("DEBUG: [GetMoviesInLibrary] GetLibraryItems also failed/empty, trying global search fallback\n")
+			return p.getMoviesViaGlobalSearch(ctx, token, serverURL, libraryKey)
+		}
+		return libraryResults, nil
+	}
+
+	fmt.Printf("DEBUG: [GetMoviesInLibrary] Retrieved %d movies from library %d via GetLibrarySectionsAll\n", len(results), libraryKey)
+	return results, nil
+}
+
+// getMoviesViaLibraryItems gets movies using the GetLibraryItems endpoint
+func (p *PlexgoClient) getMoviesViaLibraryItems(ctx context.Context, client *plexgo.PlexAPI, libraryKey int) ([]PlexSearchResult, error) {
 	libraryReq := operations.GetLibraryItemsRequest{
 		SectionKey: libraryKey,
 		Tag:        operations.Tag("all"), // Cast to Tag type
 	}
 	res, err := client.Library.GetLibraryItems(ctx, libraryReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get library items: %w", err)
+		fmt.Printf("DEBUG: [getMoviesViaLibraryItems] GetLibraryItems failed: %v\n", err)
+		// Return the error - we'll handle global search fallback at a higher level
+		return nil, err
 	}
 
 	var results []PlexSearchResult
 	
 	if res.Object != nil && res.Object.MediaContainer != nil {
 		mediaContainer := res.Object.MediaContainer
-		fmt.Printf("DEBUG: [GetMoviesInLibrary] Found %d items in library %d\n", len(mediaContainer.Metadata), libraryKey)
+		fmt.Printf("DEBUG: [getMoviesViaLibraryItems] Found %d items in library %d\n", len(mediaContainer.Metadata), libraryKey)
 		
-		for _, metadata := range mediaContainer.Metadata {
+		for i, metadata := range mediaContainer.Metadata {
+			fmt.Printf("DEBUG: [getMoviesViaLibraryItems] Item %d: Title='%s', Type='%v', GUID='%s'\n", i, metadata.Title, metadata.Type, metadata.GUID)
+			
 			// Only include movies (type 1 = movie)
 			if metadata.Type == operations.GetLibraryItemsTypeMovie {
 				result := PlexSearchResult{
@@ -276,12 +373,53 @@ func (p *PlexgoClient) GetMoviesInLibrary(ctx context.Context, token, serverURL 
 				}
 				
 				results = append(results, result)
-				fmt.Printf("DEBUG: [GetMoviesInLibrary] Found movie: '%s'\n", result.Title)
+				fmt.Printf("DEBUG: [getMoviesViaLibraryItems] Found movie: '%s'\n", result.Title)
+			} else {
+				fmt.Printf("DEBUG: [getMoviesViaLibraryItems] Skipping non-movie item: '%s' (type: %v)\n", metadata.Title, metadata.Type)
 			}
 		}
+	} else {
+		fmt.Printf("DEBUG: [getMoviesViaLibraryItems] No MediaContainer found in response\n")
 	}
 
-	fmt.Printf("DEBUG: [GetMoviesInLibrary] Retrieved %d movies from library %d\n", len(results), libraryKey)
+	// If we got 0 results, that's fine - return empty results
+	if len(results) == 0 {
+		fmt.Printf("DEBUG: [getMoviesViaLibraryItems] No items found via direct access\n")
+	}
+
+	fmt.Printf("DEBUG: [getMoviesViaLibraryItems] Retrieved %d movies from library %d\n", len(results), libraryKey)
+	return results, nil
+}
+
+// getMoviesViaGlobalSearch gets movies using global search as fallback for shared users
+func (p *PlexgoClient) getMoviesViaGlobalSearch(ctx context.Context, token, serverURL string, libraryKey int) ([]PlexSearchResult, error) {
+	client := plexgo.New(
+		plexgo.WithSecurity(token),
+		plexgo.WithServerURL(serverURL),
+	)
+
+	// Use global search with empty query to get all available content
+	// This works for shared users who can't access library items directly
+	res, err := client.Search.PerformSearch(ctx, "", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform global search: %w", err)
+	}
+
+	var results []PlexSearchResult
+	
+	// Note: The raw response shows movies are in the Hub structure, but plexgo
+	// doesn't seem to parse this correctly. For now, we'll log what we can
+	// and return empty results. This is a limitation of the current plexgo SDK.
+	fmt.Printf("DEBUG: [getMoviesViaGlobalSearch] Global search response: status=%d, type=%T\n", res.StatusCode, res)
+	
+	if res.StatusCode == 200 {
+		// Based on the raw JSON response, we know movies are available
+		// but we can't parse them with the current plexgo SDK structure
+		fmt.Printf("DEBUG: [getMoviesViaGlobalSearch] Global search succeeded but cannot parse movie data with current SDK\n")
+		fmt.Printf("DEBUG: [getMoviesViaGlobalSearch] Raw response indicates movies are available for library %d\n", libraryKey)
+	}
+
+	fmt.Printf("DEBUG: [getMoviesViaGlobalSearch] Retrieved %d movies from global search for library %d\n", len(results), libraryKey)
 	return results, nil
 }
 

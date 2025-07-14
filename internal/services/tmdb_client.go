@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -73,6 +74,15 @@ func NewTMDBClient(apiKey string) *TMDBClient {
 	}
 }
 
+// IsValidAPIKey checks if the API key looks valid (basic validation)
+func (c *TMDBClient) IsValidAPIKey() bool {
+	// Basic validation - TMDB API keys are typically 32 characters long
+	if len(c.APIKey) < 20 || c.APIKey == "test" || c.APIKey == "fake-api-key" {
+		return false
+	}
+	return true
+}
+
 func (c *TMDBClient) makeRequest(endpoint string, params map[string]string) (*http.Response, error) {
 	u, err := url.Parse(c.BaseURL + endpoint)
 	if err != nil {
@@ -80,8 +90,8 @@ func (c *TMDBClient) makeRequest(endpoint string, params map[string]string) (*ht
 	}
 
 	query := u.Query()
-	query.Set("api_key", c.APIKey)
 	
+	// Add request parameters
 	for key, value := range params {
 		query.Set(key, value)
 	}
@@ -93,6 +103,7 @@ func (c *TMDBClient) makeRequest(endpoint string, params map[string]string) (*ht
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Use Bearer token authentication (recommended for TMDB API v3)
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("accept", "application/json")
 
@@ -102,22 +113,24 @@ func (c *TMDBClient) makeRequest(endpoint string, params map[string]string) (*ht
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// Read the response body to get detailed error information
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("API request failed with status %d, response: %s, URL: %s", resp.StatusCode, string(body), req.URL.String())
 	}
 
 	return resp, nil
 }
 
 // SearchMovies searches for movies by query string
-func (c *TMDBClient) SearchMovies(query string, page int) (*TMDBSearchResponse, error) {
-	if page <= 0 {
-		page = 1
-	}
-
+func (c *TMDBClient) SearchMovies(query string, year int) (*TMDBSearchResponse, error) {
 	params := map[string]string{
 		"query": query,
-		"page":  strconv.Itoa(page),
+	}
+
+	// Add year parameter if provided
+	if year > 0 {
+		params["year"] = strconv.Itoa(year)
 	}
 
 	resp, err := c.makeRequest("/search/movie", params)
