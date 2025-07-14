@@ -60,6 +60,7 @@ func main() {
 	feedHandler := handlers.NewFeedHandler(db)
 	listHandler := handlers.NewListHandler(db)
 	syncHandler := handlers.NewSyncHandler(movieSyncService)
+	plexHandler := handlers.NewPlexHandler(db)
 
 	// Setup router using standard library ServeMux
 	mux := http.NewServeMux()
@@ -115,6 +116,12 @@ func main() {
 	// Sync routes
 	mux.HandleFunc("POST /api/sync/movies", requireAuth(http.HandlerFunc(syncHandler.TriggerMovieSync)).ServeHTTP)
 	mux.HandleFunc("GET /api/sync/status", requireAuth(http.HandlerFunc(syncHandler.GetSyncStatus)).ServeHTTP)
+
+	// Plex routes
+	mux.HandleFunc("POST /api/plex/auth/start", requireAuth(http.HandlerFunc(plexHandler.StartPlexAuth)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/auth/check", requireAuth(http.HandlerFunc(plexHandler.CheckPlexAuth)).ServeHTTP)
+	mux.HandleFunc("GET /api/plex/status", requireAuth(http.HandlerFunc(plexHandler.GetPlexStatus)).ServeHTTP)
+	mux.HandleFunc("DELETE /api/plex/disconnect", requireAuth(http.HandlerFunc(plexHandler.DisconnectPlex)).ServeHTTP)
 
 	// SPA routes - serve index.html for client-side routing
 	spaRoutes := []string{"/movies", "/community", "/lists", "/profile", "/search", "/settings"}
