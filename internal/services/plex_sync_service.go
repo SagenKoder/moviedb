@@ -58,7 +58,7 @@ func (p *PlexSyncJobProcessor) GetJobType() JobType {
 // ProcessJob processes a full sync job
 func (p *PlexSyncJobProcessor) ProcessJob(ctx context.Context, job *Job) error {
 	fmt.Printf("PlexSyncJobProcessor: Starting to process job %d\n", job.ID)
-	
+
 	if job.UserID == nil {
 		fmt.Printf("PlexSyncJobProcessor: Job %d missing user ID\n", job.ID)
 		return fmt.Errorf("user ID is required for sync job")
@@ -66,13 +66,13 @@ func (p *PlexSyncJobProcessor) ProcessJob(ctx context.Context, job *Job) error {
 
 	fmt.Printf("PlexSyncJobProcessor: Processing full sync for user %d, job %d\n", *job.UserID, job.ID)
 	err := p.syncService.PerformFullSync(ctx, *job.UserID, job.ID)
-	
+
 	if err != nil {
 		fmt.Printf("PlexSyncJobProcessor: Job %d failed: %v\n", job.ID, err)
 	} else {
 		fmt.Printf("PlexSyncJobProcessor: Job %d completed successfully\n", job.ID)
 	}
-	
+
 	return err
 }
 
@@ -143,7 +143,7 @@ func (s *PlexSyncService) PerformFullSync(ctx context.Context, userID int64, job
 
 	for _, library := range serverLibraries {
 		fmt.Printf("DEBUG: [PerformFullSync] Found library: %s (Type: %s)\n", library.Title, library.Type)
-		
+
 		// Only sync movie libraries for now
 		if library.Type != "movie" {
 			fmt.Printf("DEBUG: [PerformFullSync] Skipping non-movie library: %s\n", library.Title)
@@ -170,7 +170,7 @@ func (s *PlexSyncService) PerformFullSync(ctx context.Context, userID int64, job
 	}
 
 	fmt.Printf("DEBUG: [PerformFullSync] Library sync completed, starting TMDB matching phase\n")
-	
+
 	// Phase 3: TMDB Matching
 	s.jobManager.UpdateJobProgress(jobID, 80, "Matching items with TMDB", processedItems, successfulItems, failedItems)
 
@@ -238,7 +238,7 @@ func (s *PlexSyncService) discoverUserLibraries(ctx context.Context, plexToken s
 		for _, library := range libraries {
 			library.ServerID = serverID
 			library.ServerURL = serverURL
-			library.AccessToken = server.AccessToken  // Store server-specific token
+			library.AccessToken = server.AccessToken // Store server-specific token
 
 			// Store library in database
 			libraryID, err := s.storeLibrary(library)
@@ -404,7 +404,7 @@ func (s *PlexSyncService) storeLibraryItem(libraryID int64, item PlexSearchResul
 // performTMDBMatching matches Plex items with TMDB using rate limiting
 func (s *PlexSyncService) performTMDBMatching(ctx context.Context, userID int64, jobID int64) (int, error) {
 	fmt.Printf("DEBUG: [performTMDBMatching] Starting TMDB matching for user %d\n", userID)
-	
+
 	// Debug: Check total items in database
 	var totalItems int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM plex_library_items WHERE is_active = 1`).Scan(&totalItems)
@@ -413,7 +413,7 @@ func (s *PlexSyncService) performTMDBMatching(ctx context.Context, userID int64,
 	} else {
 		fmt.Printf("DEBUG: [performTMDBMatching] Total active items in database: %d\n", totalItems)
 	}
-	
+
 	// Debug: Check user access entries
 	var userAccessCount int
 	err = s.db.QueryRow(`SELECT COUNT(*) FROM user_plex_access WHERE user_id = ? AND is_active = 1`, userID).Scan(&userAccessCount)
@@ -422,7 +422,7 @@ func (s *PlexSyncService) performTMDBMatching(ctx context.Context, userID int64,
 	} else {
 		fmt.Printf("DEBUG: [performTMDBMatching] User %d has access to %d libraries\n", userID, userAccessCount)
 	}
-	
+
 	// Get unmatched items
 	rows, err := s.db.Query(`
 		SELECT pli.id, pli.title, pli.year, pli.plex_guid
@@ -463,7 +463,7 @@ func (s *PlexSyncService) performTMDBMatching(ctx context.Context, userID int64,
 	}
 
 	fmt.Printf("DEBUG: [performTMDBMatching] Found %d unmatched items for user %d\n", len(unmatchedItems), userID)
-	
+
 	matchedCount := 0
 
 	for i, item := range unmatchedItems {
@@ -576,7 +576,7 @@ func (s *PlexSyncService) storeMovieFromTMDB(movie interface{}) error {
 				year = &parsedYear
 			}
 		}
-		
+
 	case *TMDBMovieDetails:
 		tmdbID = m.ID
 		title = m.Title
@@ -602,7 +602,7 @@ func (s *PlexSyncService) storeMovieFromTMDB(movie interface{}) error {
 				genresJSON = string(genresBytes)
 			}
 		}
-		
+
 	default:
 		return fmt.Errorf("unsupported movie data type: %T", movie)
 	}
@@ -662,13 +662,6 @@ func extractTMDBFromGUID(plexGUID string) int {
 	}
 
 	return 0
-}
-
-func getYear(year *int) int {
-	if year == nil {
-		return 0
-	}
-	return *year
 }
 
 func max(a, b int) int {

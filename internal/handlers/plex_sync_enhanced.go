@@ -17,14 +17,14 @@ import (
 
 // PlexSyncEnhancedHandler handles enhanced Plex sync operations
 type PlexSyncEnhancedHandler struct {
-	syncService   *services.PlexSyncService
+	syncService    *services.PlexSyncService
 	authMiddleware *jwtmiddleware.JWTMiddleware
 }
 
 // NewPlexSyncEnhancedHandler creates a new enhanced Plex sync handler
 func NewPlexSyncEnhancedHandler(syncService *services.PlexSyncService, authMiddleware *jwtmiddleware.JWTMiddleware) *PlexSyncEnhancedHandler {
 	return &PlexSyncEnhancedHandler{
-		syncService:   syncService,
+		syncService:    syncService,
 		authMiddleware: authMiddleware,
 	}
 }
@@ -84,13 +84,13 @@ type UserJobsResponse struct {
 
 // LibraryInfo represents library information
 type LibraryInfo struct {
-	ID          int64  `json:"id"`
-	Title       string `json:"title"`
-	Type        string `json:"type"`
-	ItemCount   int    `json:"item_count"`
-	ServerName  string `json:"server_name"`
-	LastSynced  string `json:"last_synced"`
-	HasAccess   bool   `json:"has_access"`
+	ID         int64  `json:"id"`
+	Title      string `json:"title"`
+	Type       string `json:"type"`
+	ItemCount  int    `json:"item_count"`
+	ServerName string `json:"server_name"`
+	LastSynced string `json:"last_synced"`
+	HasAccess  bool   `json:"has_access"`
 }
 
 // UserLibrariesResponse represents the response for user libraries
@@ -134,13 +134,13 @@ func (h *PlexSyncEnhancedHandler) GetJobStatus(w http.ResponseWriter, r *http.Re
 
 	// Extract job ID from URL path
 	jobIDStr := r.PathValue("jobId")
-	
+
 	// Validate input
 	if err := validateInput(jobIDStr, 20, "job ID"); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	
+
 	jobID, err := strconv.ParseInt(jobIDStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid job ID format", http.StatusBadRequest)
@@ -196,7 +196,7 @@ func (h *PlexSyncEnhancedHandler) GetUserJobs(w http.ResponseWriter, r *http.Req
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
 		} else {
@@ -274,13 +274,13 @@ func (h *PlexSyncEnhancedHandler) CancelJob(w http.ResponseWriter, r *http.Reque
 
 	// Extract job ID from URL path
 	jobIDStr := r.PathValue("jobId")
-	
+
 	// Validate input
 	if err := validateInput(jobIDStr, 20, "job ID"); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	
+
 	jobID, err := strconv.ParseInt(jobIDStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid job ID format", http.StatusBadRequest)
@@ -351,52 +351,21 @@ func (h *PlexSyncEnhancedHandler) getUserLibraries(userID int64) ([]LibraryInfo,
 	return libraries, nil
 }
 
-// getUserID extracts user ID from request context (implementation depends on your auth system)
-func getUserID(r *http.Request) int64 {
-	// This is a placeholder - implement based on your authentication system
-	// You might get this from JWT token, session, or request context
-	if userID := r.Context().Value("user_id"); userID != nil {
-		if id, ok := userID.(int64); ok {
-			return id
-		}
-	}
-	return 0
-}
-
 // validateUserJobAccess validates that the user owns the specified job
 func (h *PlexSyncEnhancedHandler) validateUserJobAccess(userID int64, jobID int64) error {
 	var jobUserID sql.NullInt64
 	err := h.syncService.JobManager().DB().QueryRow(`
 		SELECT user_id FROM sync_jobs WHERE id = ?
 	`, jobID).Scan(&jobUserID)
-	
+
 	if err != nil {
 		return fmt.Errorf("job not found")
 	}
-	
+
 	if !jobUserID.Valid || jobUserID.Int64 != userID {
 		return fmt.Errorf("access denied: job belongs to different user")
 	}
-	
-	return nil
-}
 
-// validateUserLibraryAccess validates that the user has access to the specified library
-func (h *PlexSyncEnhancedHandler) validateUserLibraryAccess(userID int64, libraryID int64) error {
-	var accessCount int
-	err := h.syncService.DB().QueryRow(`
-		SELECT COUNT(*) FROM user_plex_access 
-		WHERE user_id = ? AND library_id = ? AND is_active = 1
-	`, userID, libraryID).Scan(&accessCount)
-	
-	if err != nil {
-		return fmt.Errorf("failed to check library access: %w", err)
-	}
-	
-	if accessCount == 0 {
-		return fmt.Errorf("access denied: user does not have access to library")
-	}
-	
 	return nil
 }
 
@@ -405,14 +374,14 @@ func validateInput(input string, maxLength int, fieldName string) error {
 	if len(input) > maxLength {
 		return fmt.Errorf("%s exceeds maximum length of %d characters", fieldName, maxLength)
 	}
-	
+
 	// Basic SQL injection prevention (additional to parameterized queries)
-	if strings.Contains(strings.ToLower(input), "drop ") || 
-	   strings.Contains(strings.ToLower(input), "delete ") || 
-	   strings.Contains(strings.ToLower(input), "truncate ") ||
-	   strings.Contains(strings.ToLower(input), "alter ") {
+	if strings.Contains(strings.ToLower(input), "drop ") ||
+		strings.Contains(strings.ToLower(input), "delete ") ||
+		strings.Contains(strings.ToLower(input), "truncate ") ||
+		strings.Contains(strings.ToLower(input), "alter ") {
 		return fmt.Errorf("invalid characters in %s", fieldName)
 	}
-	
+
 	return nil
 }

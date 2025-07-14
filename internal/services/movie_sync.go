@@ -65,14 +65,6 @@ func (s *MovieSyncService) StartSyncScheduler() {
 	}()
 }
 
-// StopSyncScheduler stops the automatic sync scheduler
-func (s *MovieSyncService) StopSyncScheduler() {
-	if s.ticker != nil {
-		s.ticker.Stop()
-	}
-	s.stopChan <- true
-}
-
 // ManualSync triggers a manual sync (can be called from API)
 func (s *MovieSyncService) ManualSync() error {
 	log.Println("Manual sync triggered...")
@@ -221,7 +213,7 @@ func (s *MovieSyncService) insertMovie(tmdbMovie TMDBMovie) error {
 	_, err = s.db.Exec(`
 		INSERT INTO movies (tmdb_id, title, year, poster_url, synopsis, runtime, genres, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, tmdbMovie.ID, tmdbMovie.Title, year, posterURLPtr, tmdbMovie.Overview, 
+	`, tmdbMovie.ID, tmdbMovie.Title, year, posterURLPtr, tmdbMovie.Overview,
 		details.Runtime, genresJSON, time.Now())
 
 	if err != nil {
@@ -261,7 +253,7 @@ func (s *MovieSyncService) updateMovie(tmdbMovie TMDBMovie) error {
 		UPDATE movies 
 		SET title = ?, year = ?, poster_url = ?, synopsis = ?, runtime = ?, genres = ?
 		WHERE tmdb_id = ?
-	`, tmdbMovie.Title, year, posterURLPtr, tmdbMovie.Overview, 
+	`, tmdbMovie.Title, year, posterURLPtr, tmdbMovie.Overview,
 		details.Runtime, genresJSON, tmdbMovie.ID)
 
 	if err != nil {

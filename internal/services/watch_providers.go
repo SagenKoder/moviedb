@@ -2,9 +2,7 @@ package services
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -149,65 +147,6 @@ func (s *WatchProvidersService) GetWatchProviders(tmdbID int, region string, use
 	return response, nil
 }
 
-// getCachedWatchProviders retrieves cached watch provider data
-func (s *WatchProvidersService) getCachedWatchProviders(tmdbID int, region string) (*WatchProvidersResponse, error) {
-	query := `
-		SELECT providers_data, cached_at, expires_at 
-		FROM watch_providers_cache 
-		WHERE tmdb_id = ? AND region_code = ? AND expires_at > datetime('now')
-	`
-
-	var providersJSON string
-	var cachedAt, expiresAt time.Time
-
-	err := s.db.QueryRow(query, tmdbID, region).Scan(&providersJSON, &cachedAt, &expiresAt)
-	if err != nil {
-		return nil, err
-	}
-
-	var response WatchProvidersResponse
-	err = json.Unmarshal([]byte(providersJSON), &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cached providers: %w", err)
-	}
-
-	response.CachedAt = cachedAt
-	response.ExpiresAt = expiresAt
-
-	return &response, nil
-}
-
-// cacheWatchProviders stores watch provider data in cache
-func (s *WatchProvidersService) cacheWatchProviders(response *WatchProvidersResponse) error {
-	// Create a copy without Plex data for caching
-	cacheResponse := *response
-	var tmdbOnlyProviders []WatchProvider
-	for _, provider := range response.Providers {
-		if provider.ProviderType != "plex" {
-			tmdbOnlyProviders = append(tmdbOnlyProviders, provider)
-		}
-	}
-	cacheResponse.Providers = tmdbOnlyProviders
-	cacheResponse.PlexAvailable = false // Don't cache user-specific Plex data
-
-	providersJSON, err := json.Marshal(cacheResponse)
-	if err != nil {
-		return fmt.Errorf("failed to marshal providers for caching: %w", err)
-	}
-
-	query := `
-		INSERT INTO watch_providers_cache (tmdb_id, region_code, providers_data, expires_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(tmdb_id, region_code) DO UPDATE SET
-			providers_data = excluded.providers_data,
-			cached_at = CURRENT_TIMESTAMP,
-			expires_at = excluded.expires_at
-	`
-
-	_, err = s.db.Exec(query, response.TMDBID, response.Region, string(providersJSON), response.ExpiresAt)
-	return err
-}
-
 // getPlexAvailability checks if movie is available on user's Plex servers using database query
 func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (bool, []WatchProvider, error) {
 	fmt.Printf("DEBUG: Starting Plex availability check for TMDB ID %d, User ID %d\n", tmdbID, userID)
@@ -237,53 +176,6 @@ func (s *WatchProvidersService) getPlexAvailability(tmdbID int, userID int) (boo
 
 	fmt.Printf("DEBUG: Completed Plex availability check. Final result: %v\n", isAvailable)
 	return isAvailable, plexProviders, nil
-}
-
-// getCachedPlexAvailability retrieves cached Plex availability
-func (s *WatchProvidersService) getCachedPlexAvailability(tmdbID int, userID int) (bool, []WatchProvider, error) {
-	query := `
-		SELECT is_available, plex_servers
-		FROM plex_availability_cache 
-		WHERE tmdb_id = ? AND user_id = ? AND expires_at > datetime('now')
-	`
-
-	var isAvailable bool
-	var plexServersJSON string
-
-	err := s.db.QueryRow(query, tmdbID, userID).Scan(&isAvailable, &plexServersJSON)
-	if err != nil {
-		return false, []WatchProvider{}, err
-	}
-
-	var plexProviders []WatchProvider
-	if isAvailable {
-		plexProviders = append(plexProviders, WatchProvider{
-			Name:         "Plex",
-			ProviderType: "plex",
-			PlexServer:   "Your Plex Server",
-		})
-	}
-
-	return isAvailable, plexProviders, nil
-}
-
-// cachePlexAvailability stores Plex availability in cache
-func (s *WatchProvidersService) cachePlexAvailability(tmdbID int, userID int, isAvailable bool, servers []string) error {
-	serversJSON, _ := json.Marshal(servers)
-	expiresAt := time.Now().Add(48 * time.Hour)
-
-	query := `
-		INSERT INTO plex_availability_cache (tmdb_id, user_id, is_available, plex_servers, expires_at)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(tmdb_id, user_id) DO UPDATE SET
-			is_available = excluded.is_available,
-			plex_servers = excluded.plex_servers,
-			cached_at = CURRENT_TIMESTAMP,
-			expires_at = excluded.expires_at
-	`
-
-	_, err := s.db.Exec(query, tmdbID, userID, isAvailable, string(serversJSON), expiresAt)
-	return err
 }
 
 // ClearExpiredCache removes expired cache entries
