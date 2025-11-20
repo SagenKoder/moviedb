@@ -1,6 +1,6 @@
 module moviedb
 
-go 1.22
+go 1.24.0
 
 require (
 	github.com/LukeHagar/plexgo v0.23.0
@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/ericlagergren/decimal v0.0.0-20221120152707-495c53812d05 // indirect
-	golang.org/x/crypto v0.4.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
-	gopkg.in/go-jose/go-jose.v2 v2.6.1 // indirect
+	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
 )
